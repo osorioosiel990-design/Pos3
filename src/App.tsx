@@ -7,14 +7,11 @@ import {
   getConfig, setConfig, initDefaultConfig,
   Storage, verifyMasterKey, getLicense, saveLicense, isLicenseValid, clearLicense,
   encryptData, decryptData, fmt, fmtDate, fmtDateTime, genVentaNum,
-  type Producto, type Compra, type Venta, type VentaItem, type Cliente, type Gasto, type Anulacion, type Tasa
+  toUSD, toCUP, numVal, getWeekRange,
+  type Producto, type Venta, type VentaItem, type Cliente, type Gasto, type Anulacion, type Tasa, type CierreSemanal
 } from './lib/db';
 
 Chart.register(...registerables);
-
-const toUSD = (cup: number, tasa: number) => tasa > 0 ? cup / tasa : 0;
-const toCUP = (usd: number, tasa: number) => usd * tasa;
-const numVal = (v: number | undefined | null) => v === undefined || v === null ? '' : v;
 
 // ============ TOAST ============
 type Toast = { id: number; msg: string; type: 'ok' | 'err' | 'warn' | 'info' };
@@ -43,7 +40,7 @@ function LicenseScreen({ onActivate }: { onActivate: () => void }) {
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
       <div className="card p-8 w-full max-w-md">
-        <div className="text-center mb-6"><h1 className="text-2xl font-bold" style={{ color: 'var(--primary)' }}>🔧 FerreteríaPRO</h1><p className="text-sm mt-2" style={{ color: 'var(--text2)' }}>Sistema de Gestión</p></div>
+        <div className="text-center mb-6"><h1 className="text-2xl font-bold" style={{ color: 'var(--primary)' }}>🔧 Ferretería Suárez</h1><p className="text-sm mt-2" style={{ color: 'var(--text2)' }}>Sistema de Gestión</p></div>
         {step === 'key' ? (<div><label className="block text-sm font-medium mb-2">Clave de activación</label><input type="password" className="input mb-3" value={key} onChange={e => setKey(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleKey()} />{err && <p className="text-red-500 text-sm mb-2">{err}</p>}<button className="btn btn-primary w-full justify-center" onClick={handleKey}>Verificar</button></div>) : (<div><p className="text-sm mb-4" style={{ color: 'var(--text2)' }}>Seleccione un plan:</p><div className="grid grid-cols-2 gap-3">{[{ d: 30, n: 'Prueba' }, { d: 90, n: 'Trimestral' }, { d: 365, n: 'Anual' }, { d: 0, n: 'Perpetuo' }].map(p => (<button key={p.d} className="btn btn-ghost flex-col py-4" onClick={() => handlePlan(p.d, p.n)}><span className="font-bold">{p.n}</span><span className="text-xs" style={{ color: 'var(--text2)' }}>{p.d === 0 ? 'Sin expiración' : `${p.d} días`}</span></button>))}</div></div>)}
       </div>
     </div>
@@ -52,17 +49,16 @@ function LicenseScreen({ onActivate }: { onActivate: () => void }) {
 
 function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean }) {
   if (!open) return null;
-  return (<div className="modal-backdrop" onClick={onClose}><div className={`modal ${wide ? 'w-[900px]' : 'w-[500px]'}`} onClick={e => e.stopPropagation()}><div className="flex justify-between items-center mb-4"><h2 className="text-lg font-bold">{title}</h2><button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button></div>{children}</div></div>);
+  return (<div className="modal-backdrop" onClick={onClose}><div className={`modal ${wide ? 'w-[900px]' : 'w-[550px]'}`} onClick={e => e.stopPropagation()}><div className="flex justify-between items-center mb-4"><h2 className="text-lg font-bold">{title}</h2><button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button></div>{children}</div></div>);
 }
 
-// ============ HELP BUTTON ============
 function HelpBtn({ text }: { text: string }) {
   const [show, setShow] = useState(false);
-  return (<><button className="help-btn" onClick={() => setShow(true)} title="Ayuda">?</button><Modal open={show} onClose={() => setShow(false)} title="📖 Ayuda"><p className="text-sm whitespace-pre-line" style={{ color: 'var(--text)' }}>{text}</p><div className="flex justify-end mt-4"><button className="btn btn-primary" onClick={() => setShow(false)}>Entendido</button></div></Modal></>);
+  return (<><button className="help-btn" onClick={() => setShow(true)} title="Ayuda">?</button><Modal open={show} onClose={() => setShow(false)} title="📖 Ayuda"><p className="text-sm whitespace-pre-line">{text}</p><div className="flex justify-end mt-4"><button className="btn btn-primary" onClick={() => setShow(false)}>Entendido</button></div></Modal></>);
 }
 
 // ============ MAIN APP ============
-type Page = 'dashboard' | 'inventory' | 'purchases' | 'pos' | 'sales' | 'cancellations' | 'clients' | 'metrics' | 'expenses' | 'backup' | 'settings' | 'weekly';
+type Page = 'dashboard' | 'inventory' | 'purchases' | 'pos' | 'sales' | 'cancellations' | 'clients' | 'metrics' | 'expenses' | 'backup' | 'settings' | 'weekly' | 'history';
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -105,6 +101,7 @@ export default function App() {
     { id: 'pos', icon: '🛒', label: 'POS' },
     { id: 'sales', icon: '🧾', label: 'Ventas' },
     { id: 'weekly', icon: '📅', label: 'Cierre Semanal' },
+    { id: 'history', icon: '📚', label: 'Histórico Cierres' },
     { id: 'cancellations', icon: '🚫', label: 'Anulaciones' },
     { id: 'clients', icon: '💳', label: 'Clientes' },
     { id: 'metrics', icon: '📈', label: 'Métricas' },
@@ -117,9 +114,9 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen">
-      {!kiosco && (<aside className="sidebar"><div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}><h1 className="font-bold text-lg" style={{ color: 'var(--primary)' }}>🔧 FerreteríaPRO</h1></div><nav className="flex-1 py-2">{navItems.map(n => (<div key={n.id} className={`sidebar-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}><span>{n.icon}</span><span>{n.label}</span></div>))}</nav><div className="p-3 border-t" style={{ borderColor: 'var(--border)' }}><button className="btn btn-ghost btn-sm w-full justify-center" onClick={() => setKiosco(true)}>⛶ Kiosco</button></div></aside>)}
+      {!kiosco && (<aside className="sidebar"><div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}><h1 className="font-bold text-lg" style={{ color: 'var(--primary)' }}>🔧 Ferretería Suárez</h1></div><nav className="flex-1 py-2 overflow-y-auto">{navItems.map(n => (<div key={n.id} className={`sidebar-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}><span>{n.icon}</span><span>{n.label}</span></div>))}</nav><div className="p-3 border-t" style={{ borderColor: 'var(--border)' }}><button className="btn btn-ghost btn-sm w-full justify-center" onClick={() => setKiosco(true)}>⛶ Kiosco</button></div></aside>)}
       <main className="flex-1 overflow-auto">
-        {!kiosco && (<header className="flex items-center justify-between px-6 py-3 border-b" style={{ borderColor: 'var(--border)', background: 'var(--bg2)' }}><div className="flex items-center gap-3"><h2 className="font-semibold text-lg">{navItems.find(n => n.id === page)?.icon} {navItems.find(n => n.id === page)?.label}</h2></div><div className="flex items-center gap-3"><span className="text-xs" style={{ color: 'var(--text2)' }}>1 USD = {fmt(cfg.tasa || 350)} CUP</span></div></header>)}
+        {!kiosco && (<header className="flex items-center justify-between px-6 py-3 border-b" style={{ borderColor: 'var(--border)', background: 'var(--bg2)' }}><h2 className="font-semibold text-lg">{navItems.find(n => n.id === page)?.icon} {navItems.find(n => n.id === page)?.label}</h2><span className="text-xs" style={{ color: 'var(--text2)' }}>1 USD = {fmt(cfg.tasa || 350)} CUP</span></header>)}
         <div className="p-4 md:p-6">
           {page === 'dashboard' && <Dashboard cfg={cfg} setPage={setPage} />}
           {page === 'inventory' && <Inventory cfg={cfg} />}
@@ -127,6 +124,7 @@ export default function App() {
           {page === 'pos' && <POS cfg={cfg} />}
           {page === 'sales' && <Sales cfg={cfg} />}
           {page === 'weekly' && <WeeklyClose cfg={cfg} />}
+          {page === 'history' && <CierreHistory cfg={cfg} />}
           {page === 'cancellations' && <Cancellations cfg={cfg} />}
           {page === 'clients' && <Clients cfg={cfg} />}
           {page === 'metrics' && <Metrics cfg={cfg} />}
@@ -140,112 +138,68 @@ export default function App() {
   );
 }
 
-// ============ HELP TEXTS ============
-const HELP = {
-  dashboard: '📊 DASHBOARD\n\n• Muestra resumen del día: ventas, ingresos y ganancia\n• Caja en CUP y USD separados con equivalente debajo\n• Inversión total en inventario (valor PEP)\n• Alertas de stock bajo, agotados, clientes con saldo\n• Gráficos de ventas de los últimos 7 días',
-  inventory: '📦 INVENTARIO\n\n• CRUD completo de productos\n• Búsqueda por nombre, código o categoría\n• Filtros por estado (disponible, stock bajo, agotado)\n• Inversión total = Stock × PEP\n• Al eliminar: se borra directamente (sin registro en anulaciones)\n• Los precios se convierten automáticamente USD↔CUP',
-  purchases: '📥 COMPRAS\n\n• Registra entradas de mercancía\n• Calcula automáticamente el PEP (Precio Promedio Ponderado)\n• Actualiza stock del producto\n• Los precios se convierten automáticamente USD↔CUP\n• ⚠️ La tasa actual se usa para la conversión',
-  pos: '🛒 PUNTO DE VENTA\n\n• Busca productos y agrégalos al carrito\n• Botones de pago: Efectivo, Tarjeta, Crédito (CUP/USD)\n• Si hay crédito → requiere cliente seleccionado\n• F4 para cobrar rápido\n• El crédito es cuenta por cobrar (CxC)',
-  sales: '🧾 VENTAS\n\n• Historial completo de ventas\n• Muestra lo que hay en caja (CUP y USD separados)\n• Equivalente en la otra moneda debajo\n• KPIs del día: ventas, ingresos, ganancia\n• Se puede anular (revierte stock y crédito)',
-  weekly: '📅 CIERRE SEMANAL\n\n• Resumen de la semana (Lunes-Sábado)\n• Ventas totales en CUP y USD\n• Inversión en inventario\n• Ganancia bruta\n• Distribución entre inversionistas\n• Porcentaje de la dependienta\n• Los domingos se descansa',
-  cancellations: '🚫 ANULACIONES\n\n• Registro de ventas anuladas\n• Muestra motivo y detalle\n• Se puede auditar (marcar como revisada)\n• Al anular: se revierte stock y crédito del cliente',
-  clients: '💳 CLIENTES / CUENTAS POR COBRAR\n\n• Gestión de clientes\n• Cuentas por cobrar = ventas a crédito\n• Registrar abonos parciales\n• El crédito en POS genera saldo aquí',
-  metrics: '📈 MÉTRICAS SEMANALES\n\n• Solo datos de la semana actual (Lun-Sáb)\n• Venta total CUP y USD\n• Inversión en inventario\n• Ganancia bruta\n• Distribución: 50% Inv1 + 50% Inv2\n• % de dependienta sobre parte del Inv1',
-  expenses: '💸 GASTOS OPERATIVOS\n\n• Registro de gastos por categoría\n• Montos en CUP y USD (conversión automática)\n• KPIs del mes y total histórico\n• Se descuentan de la ganancia en métricas',
-  backup: '💾 RESPALDO\n\n• Exportar JSON cifrado (respaldo completo)\n• Exportar Excel con todas las tablas\n• Restaurar desde JSON\n• ⚠️ Borrar todo elimina todos los datos',
-  settings: '⚙️ AJUSTES\n\n• Tasa de cambio USD/CUP (con historial)\n• Datos del negocio (aparecen en tickets)\n• Tema claro/oscuro/automático\n• Unidades y categorías personalizables\n• Configuración de inversionistas y dependienta\n• Licencia',
-};
-
 // ============ DASHBOARD ============
 function Dashboard({ cfg, setPage }: { cfg: Record<string, any>; setPage: (p: Page) => void }) {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [anulaciones, setAnulaciones] = useState<Anulacion[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const chartRef1 = useRef<HTMLCanvasElement>(null);
-  const chartRef2 = useRef<HTMLCanvasElement>(null);
-  const chart1 = useRef<Chart | null>(null);
-  const chart2 = useRef<Chart | null>(null);
   const tasa = cfg.tasa || 350;
 
-  const load = useCallback(async () => { setVentas(await dbGetAll<Venta>('ventas')); setProductos(await dbGetAll<Producto>('productos')); setAnulaciones(await dbGetAll<Anulacion>('anulaciones')); setClientes(await dbGetAll<Cliente>('clientes')); }, []);
+  const load = useCallback(async () => {
+    setVentas(await dbGetAll<Venta>('ventas'));
+    setProductos(await dbGetAll<Producto>('productos'));
+    setAnulaciones(await dbGetAll<Anulacion>('anulaciones'));
+    setClientes(await dbGetAll<Cliente>('clientes'));
+  }, []);
   useEffect(() => { load(); }, [load]);
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const ventasHoy = ventas.filter(v => v.fecha >= today.getTime() && v.estado === 'pagada');
   
-  // Caja real: lo que entró hoy separado por moneda
   const cajaCUP = ventasHoy.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
   const cajaUSD = ventasHoy.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
-  const creditoHoyCUP = ventasHoy.reduce((s, v) => s + v.pagos.crCUP, 0);
-  const creditoHoyUSD = ventasHoy.reduce((s, v) => s + v.pagos.crUSD, 0);
   const totalHoyCUP = ventasHoy.reduce((s, v) => s + v.totalCUP, 0);
   const totalHoyUSD = ventasHoy.reduce((s, v) => s + v.totalUSD, 0);
   const gananciaHoy = ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => si + (it.precioCUP - it.pep) * it.cantidad * (1 - v.descuento / 100), 0), 0);
   
+  const inversionCUP = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
+  const inversionUSD = toUSD(inversionCUP, tasa);
+  
   const stockBajo = productos.filter(p => p.stock > 0 && p.stock <= p.min);
   const agotados = productos.filter(p => p.stock <= 0);
-  const inversionTotal = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
   const anulPend = anulaciones.filter(a => a.estado === 'pendiente');
   const clientesSaldo = clientes.filter(c => c.saldoCUP > 0 || c.saldoUSD > 0);
 
-  useEffect(() => {
-    if (!chartRef1.current || !chartRef2.current) return;
-    const days: string[] = []; const vals: number[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
-      const next = new Date(d); next.setDate(next.getDate() + 1);
-      days.push(d.toLocaleDateString('es-CU', { weekday: 'short' }));
-      vals.push(ventas.filter(v => v.fecha >= d.getTime() && v.fecha < next.getTime() && v.estado === 'pagada').reduce((s, v) => s + v.totalCUP, 0));
-    }
-    if (chart1.current) chart1.current.destroy();
-    chart1.current = new Chart(chartRef1.current, { type: 'bar', data: { labels: days, datasets: [{ label: 'Ventas CUP', data: vals, backgroundColor: '#3b82f6' }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } } });
-    const catMap: Record<string, number> = {};
-    ventasHoy.forEach(v => v.items.forEach(it => { const p = productos.find(pr => pr.id === it.productoId); catMap[p?.categoria || 'Otros'] = (catMap[p?.categoria || 'Otros'] || 0) + it.subtotalCUP; }));
-    if (chart2.current) chart2.current.destroy();
-    chart2.current = new Chart(chartRef2.current, { type: 'pie', data: { labels: Object.keys(catMap).length ? Object.keys(catMap) : ['Sin datos'], datasets: [{ data: Object.values(catMap).length ? Object.values(catMap) : [1], backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'] }] }, options: { responsive: true } });
-    return () => { chart1.current?.destroy(); chart2.current?.destroy(); };
-  }, [ventas, productos, ventasHoy]);
+  // Simplificado: sin gráficos complejos por ahora
 
   return (
     <div>
-      <div className="flex justify-end mb-3"><HelpBtn text={HELP.dashboard} /></div>
-      
-      {/* CAJA REAL */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="card p-4" style={{ borderLeft: '4px solid #059669' }}>
+        <div className="card p-4" style={{ borderLeft: '4px solid var(--ok)' }}>
           <h3 className="font-bold text-sm mb-2" style={{ color: 'var(--ok)' }}>💵 CAJA CUP HOY</h3>
           <p className="text-2xl font-bold">{fmt(cajaCUP)} CUP</p>
           <p className="equivalent">≈ {fmt(toUSD(cajaCUP, tasa))} USD</p>
-          <div className="mt-2 text-xs space-y-1" style={{ color: 'var(--text2)' }}>
-            <p>Efectivo: {fmt(ventasHoy.reduce((s, v) => s + v.pagos.efCUP, 0))}</p>
-            <p>Transferencia: {fmt(ventasHoy.reduce((s, v) => s + v.pagos.tfCUP, 0))}</p>
-            <p>Crédito (CxC): {fmt(creditoHoyCUP)}</p>
-          </div>
         </div>
-        <div className="card p-4" style={{ borderLeft: '4px solid #0891b2' }}>
+        <div className="card p-4" style={{ borderLeft: '4px solid var(--info)' }}>
           <h3 className="font-bold text-sm mb-2" style={{ color: 'var(--info)' }}>💵 CAJA USD HOY</h3>
           <p className="text-2xl font-bold">{fmt(cajaUSD)} USD</p>
           <p className="equivalent">≈ {fmt(toCUP(cajaUSD, tasa))} CUP</p>
-          <div className="mt-2 text-xs space-y-1" style={{ color: 'var(--text2)' }}>
-            <p>Efectivo: {fmt(ventasHoy.reduce((s, v) => s + v.pagos.efUSD, 0))}</p>
-            <p>Transferencia: {fmt(ventasHoy.reduce((s, v) => s + v.pagos.tfUSD, 0))}</p>
-            <p>Crédito (CxC): {fmt(creditoHoyUSD)}</p>
-          </div>
         </div>
       </div>
 
       <div className="grid-4 mb-6">
         <div className="kpi"><div className="kpi-label">Ventas Hoy</div><div className="kpi-value">{ventasHoy.length}</div><p className="equivalent">CUP: {fmt(totalHoyCUP)} | USD: {fmt(totalHoyUSD)}</p></div>
         <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoy)}</div><p className="equivalent">≈ {fmt(toUSD(gananciaHoy, tasa))} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Inversión Inventario</div><div className="kpi-value">{fmt(inversionTotal)}</div><p className="equivalent">≈ {fmt(toUSD(inversionTotal, tasa))} USD</p></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}>
+          <div className="kpi-label">💰 Inversión Inventario</div>
+          <div className="kpi-value">{fmt(inversionCUP)} CUP</div>
+          <p className="equivalent">≈ {fmt(inversionUSD)} USD</p>
+        </div>
         <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Stock Bajo / Agotados</div><div className="kpi-value">{stockBajo.length + agotados.length}</div></div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="card p-4"><h3 className="font-semibold mb-3">Ventas últimos 7 días</h3><canvas ref={chartRef1}></canvas></div>
-        <div className="card p-4"><h3 className="font-semibold mb-3">Ventas por Categoría (Hoy)</h3><canvas ref={chartRef2}></canvas></div>
-      </div>
+      {/* Gráficos simplificados - se pueden agregar después */}
 
       <div className="card p-4">
         <h3 className="font-semibold mb-3">Alertas</h3>
@@ -253,7 +207,7 @@ function Dashboard({ cfg, setPage }: { cfg: Record<string, any>; setPage: (p: Pa
           {agotados.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#fee2e2' }} onClick={() => setPage('inventory')}><span className="text-sm text-red-700">🔴 {agotados.length} productos agotados</span></div>}
           {stockBajo.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#fef3c7' }} onClick={() => setPage('inventory')}><span className="text-sm text-amber-700">🟡 {stockBajo.length} productos stock bajo</span></div>}
           {anulPend.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#fef3c7' }} onClick={() => setPage('cancellations')}><span className="text-sm text-amber-700">🚫 {anulPend.length} anulaciones pendientes</span></div>}
-          {clientesSaldo.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#cffafe' }} onClick={() => setPage('clients')}><span className="text-sm text-cyan-700">💳 {clientesSaldo.length} clientes con saldo pendiente</span></div>}
+          {clientesSaldo.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#cffafe' }} onClick={() => setPage('clients')}><span className="text-sm text-cyan-700">💳 {clientesSaldo.length} clientes con saldo</span></div>}
           {agotados.length === 0 && stockBajo.length === 0 && anulPend.length === 0 && clientesSaldo.length === 0 && <p className="text-sm" style={{ color: 'var(--text2)' }}>✅ Sin alertas</p>}
         </div>
       </div>
@@ -271,7 +225,6 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
   const [modal, setModal] = useState(false);
   const [mermaModal, setMermaModal] = useState<Producto | null>(null);
   const [mermaQty, setMermaQty] = useState(0);
-  const [mermaNota, setMermaNota] = useState('');
   const [editItem, setEditItem] = useState<Producto | null>(null);
   const [form, setForm] = useState<Partial<Producto>>({});
   const tasa = cfg.tasa || 350;
@@ -286,9 +239,10 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
   if (filterStatus === 'out') filtered = filtered.filter(p => p.stock <= 0);
   if (filterStatus === 'ok') filtered = filtered.filter(p => p.stock > p.min);
 
-  const inversionTotal = filtered.reduce((s, p) => s + (p.stock * p.pep), 0);
+  const inversionCUP = filtered.reduce((s, p) => s + (p.stock * p.pep), 0);
+  const inversionUSD = toUSD(inversionCUP, tasa);
 
-  const openNew = () => { setEditItem(null); setForm({ nombre: '', codigo: '', categoria: cfg.cats?.[0] || '', unidad: cfg.units?.[0] || 'Unidad', compraCUP: 0, compraUSD: 0, ventaCUP: 0, ventaUSD: 0, pep: 0, pepUSD: 0, stock: 0, min: 0, foto: '' }); setModal(true); };
+  const openNew = () => { setEditItem(null); setForm({ nombre: '', codigo: '', categoria: cfg.categorias?.[0] || '', unidad: cfg.unidades?.[0] || 'Unidad', compraCUP: 0, compraUSD: 0, ventaCUP: 0, ventaUSD: 0, pep: 0, pepUSD: 0, stock: 0, min: 0, foto: '', precioFijoCUP: false, precioFijoUSD: false }); setModal(true); };
   const openEdit = (p: Producto) => { setEditItem(p); setForm({ ...p }); setModal(true); };
 
   const handleVentaCUP = (val: number) => setForm(f => ({ ...f, ventaCUP: val, ventaUSD: toUSD(val, tasa) }));
@@ -306,32 +260,20 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
 
   const save = async () => {
     if (!form.nombre?.trim()) { showToast('Nombre requerido', 'err'); return; }
-    
     if (editItem) {
-      // Recalcular PEP si cambió el precio de compra
       let newPep = editItem.pep;
       let newPepUSD = editItem.pepUSD;
-      
-      if (form.compraCUP !== undefined && form.compraCUP !== editItem.compraCUP) {
-        if (editItem.stock > 0) {
-          newPep = (editItem.stock * editItem.pep + (form.compraCUP - editItem.compraCUP)) / editItem.stock;
-        } else {
-          newPep = form.compraCUP;
-        }
+      if (form.compraCUP !== undefined && form.compraCUP !== editItem.compraCUP && editItem.stock > 0) {
+        newPep = form.compraCUP;
       }
-      
-      if (form.compraUSD !== undefined && form.compraUSD !== editItem.compraUSD) {
-        if (editItem.stock > 0) {
-          newPepUSD = (editItem.stock * editItem.pepUSD + (form.compraUSD - editItem.compraUSD)) / editItem.stock;
-        } else {
-          newPepUSD = form.compraUSD;
-        }
+      if (form.compraUSD !== undefined && form.compraUSD !== editItem.compraUSD && editItem.stock > 0) {
+        newPepUSD = form.compraUSD;
       }
-      
       await dbPut('productos', { ...editItem, ...form, pep: newPep, pepUSD: newPepUSD });
       showToast('Actualizado', 'ok');
     } else {
-      await dbAdd('productos', { ...form, creado: Date.now() } as Producto);
+      const nuevo = { ...form, pep: form.compraCUP || 0, pepUSD: form.compraUSD || 0, creado: Date.now() } as Producto;
+      await dbAdd('productos', nuevo);
       showToast('Creado', 'ok');
     }
     setModal(false); load();
@@ -346,8 +288,8 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
     if (!mermaModal || mermaQty <= 0) { showToast('Cantidad inválida', 'err'); return; }
     if (mermaQty > mermaModal.stock) { showToast('No puede ser mayor al stock', 'err'); return; }
     await dbPut('productos', { ...mermaModal, stock: mermaModal.stock - mermaQty });
-    showToast(`Merma registrada: ${mermaQty} ${mermaModal.unidad} de ${mermaModal.nombre}`, 'warn');
-    setMermaModal(null); setMermaQty(0); setMermaNota(''); load();
+    showToast(`Merma: ${mermaQty} ${mermaModal.unidad}`, 'warn');
+    setMermaModal(null); setMermaQty(0); load();
   };
 
   const statusBadge = (p: Producto) => {
@@ -358,13 +300,9 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-3">
-        <div></div>
-        <HelpBtn text={HELP.inventory} />
-      </div>
       <div className="flex flex-wrap gap-3 mb-4 items-center">
         <input className="input max-w-xs" placeholder="🔍 Buscar..." value={search} onChange={e => setSearch(e.target.value)} />
-        <select className="input max-w-[150px]" value={filterCat} onChange={e => setFilterCat(e.target.value)}><option value="">Categorías</option>{(cfg.cats || []).map((c: string) => <option key={c}>{c}</option>)}</select>
+        <select className="input max-w-[150px]" value={filterCat} onChange={e => setFilterCat(e.target.value)}><option value="">Categorías</option>{(cfg.categorias || []).map((c: string) => <option key={c}>{c}</option>)}</select>
         <select className="input max-w-[150px]" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="">Todos</option><option value="ok">Disponibles</option><option value="low">Stock bajo</option><option value="out">Agotados</option></select>
         <div className="flex gap-1 ml-auto">
           <button className={`btn btn-sm ${view === 'grid' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setView('grid')}>▦</button>
@@ -373,10 +311,15 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
         </div>
       </div>
 
-      <div className="kpi mb-4" style={{ borderLeftColor: 'var(--info)' }}>
-        <div className="kpi-label">💰 Inversión Total en Inventario</div>
-        <div className="kpi-value">{fmt(inversionTotal)} CUP</div>
-        <p className="equivalent">≈ {fmt(toUSD(inversionTotal, tasa))} USD (a tasa actual)</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}>
+          <div className="kpi-label">💰 Inversión Total (CUP)</div>
+          <div className="kpi-value">{fmt(inversionCUP)} CUP</div>
+        </div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}>
+          <div className="kpi-label">💰 Inversión Total (USD)</div>
+          <div className="kpi-value">{fmt(inversionUSD)} USD</div>
+        </div>
       </div>
 
       {view === 'grid' ? (
@@ -391,30 +334,35 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
                 {statusBadge(p)}
               </div>
               <p className="text-xs mt-1">Stock: {p.stock} {p.unidad}</p>
+              <p className="text-xs" style={{ color: 'var(--text2)' }}>Inv: {fmt(p.stock * p.pep)} CUP</p>
               <div className="flex gap-1 mt-2">
                 <button className="btn btn-ghost btn-sm flex-1" onClick={() => openEdit(p)}>✏️</button>
-                <button className="btn btn-warn btn-sm flex-1" onClick={() => { setMermaModal(p); setMermaQty(0); setMermaNota(''); }}>⚠️</button>
+                <button className="btn btn-warn btn-sm flex-1" onClick={() => { setMermaModal(p); setMermaQty(0); }}>⚠️</button>
                 <button className="btn btn-ghost btn-sm flex-1" onClick={() => del(p)}>🗑️</button>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="card table-wrap"><table><thead><tr><th>Producto</th><th>Código</th><th>Cat.</th><th>Stock</th><th>PEP</th><th>Venta</th><th>Inv.</th><th>Estado</th><th></th></tr></thead><tbody>{filtered.map(p => (<tr key={p.id}><td className="font-medium">{p.nombre}</td><td className="font-mono text-xs">{p.codigo}</td><td>{p.categoria}</td><td>{p.stock}</td><td>{fmt(p.pep)}</td><td>{fmt(p.ventaCUP)}</td><td>{fmt(p.stock * p.pep)}</td><td>{statusBadge(p)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button> <button className="btn btn-warn btn-sm" onClick={() => { setMermaModal(p); setMermaQty(0); setMermaNota(''); }}>⚠️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(p)}>🗑️</button></td></tr>))}</tbody></table></div>
+        <div className="card table-wrap"><table><thead><tr><th>Producto</th><th>Código</th><th>Cat.</th><th>Stock</th><th>PEP CUP</th><th>PEP USD</th><th>Venta CUP</th><th>Inv CUP</th><th>Inv USD</th><th>Estado</th><th></th></tr></thead><tbody>{filtered.map(p => (<tr key={p.id}><td className="font-medium">{p.nombre}</td><td className="font-mono text-xs">{p.codigo}</td><td>{p.categoria}</td><td>{p.stock}</td><td>{fmt(p.pep)}</td><td>{fmt(p.pepUSD)}</td><td>{fmt(p.ventaCUP)}</td><td>{fmt(p.stock * p.pep)}</td><td>{fmt(toUSD(p.stock * p.pep, tasa))}</td><td>{statusBadge(p)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button> <button className="btn btn-warn btn-sm" onClick={() => { setMermaModal(p); setMermaQty(0); }}>⚠️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(p)}>🗑️</button></td></tr>))}</tbody></table></div>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editItem ? 'Editar Producto' : 'Nuevo Producto'}>
+      <Modal open={modal} onClose={() => setModal(false)} title={editItem ? 'Editar Producto' : 'Nuevo Producto'} wide>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2"><label className="text-xs font-medium">Nombre *</label><input className="input" value={form.nombre || ''} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} /></div>
           <div><label className="text-xs font-medium">Código</label><input className="input" value={form.codigo || ''} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} /></div>
-          <div><label className="text-xs font-medium">Categoría</label><select className="input" value={form.categoria || ''} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}>{(cfg.cats || []).map((c: string) => <option key={c}>{c}</option>)}</select></div>
-          <div><label className="text-xs font-medium">Unidad</label><select className="input" value={form.unidad || ''} onChange={e => setForm(f => ({ ...f, unidad: e.target.value }))}>{(cfg.units || []).map((u: string) => <option key={u}>{u}</option>)}</select></div>
+          <div><label className="text-xs font-medium">Categoría</label><select className="input" value={form.categoria || ''} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}>{(cfg.categorias || []).map((c: string) => <option key={c}>{c}</option>)}</select></div>
+          <div><label className="text-xs font-medium">Unidad</label><select className="input" value={form.unidad || ''} onChange={e => setForm(f => ({ ...f, unidad: e.target.value }))}>{(cfg.unidades || []).map((u: string) => <option key={u}>{u}</option>)}</select></div>
           <div><label className="text-xs font-medium">Stock</label><input type="number" className="input" value={numVal(form.stock)} onChange={e => setForm(f => ({ ...f, stock: e.target.value === '' ? 0 : +e.target.value }))} /></div>
           <div><label className="text-xs font-medium">Stock Mín.</label><input type="number" className="input" value={numVal(form.min)} onChange={e => setForm(f => ({ ...f, min: e.target.value === '' ? 0 : +e.target.value }))} /></div>
           <div><label className="text-xs font-medium">Compra CUP</label><input type="number" className="input" value={numVal(form.compraCUP)} onChange={e => handleCompraCUP(e.target.value === '' ? 0 : +e.target.value)} /></div>
           <div><label className="text-xs font-medium">Compra USD</label><input type="number" className="input" value={numVal(form.compraUSD)} onChange={e => handleCompraUSD(e.target.value === '' ? 0 : +e.target.value)} /></div>
           <div><label className="text-xs font-medium">Venta CUP</label><input type="number" className="input" value={numVal(form.ventaCUP)} onChange={e => handleVentaCUP(e.target.value === '' ? 0 : +e.target.value)} /></div>
           <div><label className="text-xs font-medium">Venta USD</label><input type="number" className="input" value={numVal(form.ventaUSD)} onChange={e => handleVentaUSD(e.target.value === '' ? 0 : +e.target.value)} /></div>
+          <div className="col-span-2 flex gap-4">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.precioFijoCUP || false} onChange={e => setForm(f => ({ ...f, precioFijoCUP: e.target.checked }))} /> Precio CUP fijo</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.precioFijoUSD || false} onChange={e => setForm(f => ({ ...f, precioFijoUSD: e.target.checked }))} /> Precio USD fijo</label>
+          </div>
           <div className="col-span-2"><label className="text-xs font-medium">Foto</label><input type="file" accept="image/*" className="input" onChange={handleFoto} />{form.foto && <img src={form.foto} className="mt-2 w-20 h-20 object-cover rounded" />}</div>
         </div>
         <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={save}>Guardar</button></div>
@@ -422,12 +370,10 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
 
       <Modal open={!!mermaModal} onClose={() => setMermaModal(null)} title="⚠️ Registrar Merma">
         {mermaModal && (<div className="space-y-3">
-          <p className="text-sm">Producto: <strong>{mermaModal.nombre}</strong> (Stock: {mermaModal.stock} {mermaModal.unidad})</p>
-          <div><label className="text-xs font-medium">Cantidad a dar de baja</label><input type="number" className="input" value={mermaQty} onChange={e => setMermaQty(+e.target.value)} /></div>
-          <div><label className="text-xs font-medium">Motivo</label><select className="input" value={mermaNota} onChange={e => setMermaNota(e.target.value)}><option value="">Seleccionar...</option><option>Producto defectuoso</option><option>Deterioro</option><option>Robo/Pérdida</option><option>Vencimiento</option><option>Otro</option></select></div>
-          <p className="text-xs" style={{ color: 'var(--err)' }}>⚠️ Esto reducirá el stock y la inversión en inventario</p>
+          <p className="text-sm">Producto: <strong>{mermaModal.nombre}</strong> (Stock: {mermaModal.stock})</p>
+          <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={mermaQty} onChange={e => setMermaQty(+e.target.value)} /></div>
         </div>)}
-        <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setMermaModal(null)}>Cancelar</button><button className="btn btn-warn" onClick={registrarMerma}>Registrar Merma</button></div>
+        <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setMermaModal(null)}>Cancelar</button><button className="btn btn-warn" onClick={registrarMerma}>Registrar</button></div>
       </Modal>
     </div>
   );
@@ -435,13 +381,13 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
 
 // ============ PURCHASES ============
 function Purchases({ cfg }: { cfg: Record<string, any> }) {
-  const [compras, setCompras] = useState<Compra[]>([]);
+  const [compras, setCompras] = useState<any[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ productoId: 0, cantidad: 0, precioUnitCUP: 0, precioUnitUSD: 0, nota: '' });
+  const [form, setForm] = useState({ productoId: 0, cantidad: 0, precioUnitCUP: 0, precioUnitUSD: 0, nota: '', proveedor: '' });
   const tasa = cfg.tasa || 350;
 
-  const load = useCallback(async () => { setCompras(await dbGetAll<Compra>('compras')); setProductos(await dbGetAll<Producto>('productos')); }, []);
+  const load = useCallback(async () => { setCompras(await dbGetAll('compras')); setProductos(await dbGetAll<Producto>('productos')); }, []);
   useEffect(() => { load(); }, [load]);
 
   const producto = productos.find(p => p.id === form.productoId);
@@ -452,30 +398,31 @@ function Purchases({ cfg }: { cfg: Record<string, any> }) {
     if (!form.productoId || !producto) { showToast('Seleccione producto', 'err'); return; }
     if (form.cantidad <= 0) { showToast('Cantidad > 0', 'err'); return; }
     if (form.precioUnitCUP <= 0 && form.precioUnitUSD <= 0) { showToast('Precio > 0', 'err'); return; }
+    
     const newPep = (producto.stock * producto.pep + form.cantidad * form.precioUnitCUP) / (producto.stock + form.cantidad);
     const newPepUSD = (producto.stock * producto.pepUSD + form.cantidad * form.precioUnitUSD) / (producto.stock + form.cantidad);
-    await dbAdd('compras', { productoId: producto.id!, productoNombre: producto.nombre, productoCodigo: producto.codigo, cantidad: form.cantidad, unidad: producto.unidad, precioUnitCUP: form.precioUnitCUP, precioUnitUSD: form.precioUnitUSD, totalCUP: form.cantidad * form.precioUnitCUP, totalUSD: form.cantidad * form.precioUnitUSD, nota: form.nota, fecha: Date.now(), creado: Date.now() } as Compra);
-    await dbPut('productos', { ...producto, stock: producto.stock + form.cantidad, pep: isNaN(newPep) ? form.precioUnitCUP : newPep, pepUSD: isNaN(newPepUSD) ? form.precioUnitUSD : newPepUSD, compraCUP: Math.max(producto.compraCUP, form.precioUnitCUP), compraUSD: Math.max(producto.compraUSD, form.precioUnitUSD) });
+    
+    await dbAdd('compras', { productoId: producto.id!, productoNombre: producto.nombre, productoCodigo: producto.codigo, cantidad: form.cantidad, unidad: producto.unidad, precioUnitCUP: form.precioUnitCUP, precioUnitUSD: form.precioUnitUSD, totalCUP: form.cantidad * form.precioUnitCUP, totalUSD: form.cantidad * form.precioUnitUSD, nota: form.nota, proveedor: form.proveedor, fecha: Date.now(), creado: Date.now() });
+    await dbPut('productos', { ...producto, stock: producto.stock + form.cantidad, pep: isNaN(newPep) ? form.precioUnitCUP : newPep, pepUSD: isNaN(newPepUSD) ? form.precioUnitUSD : newPepUSD });
     showToast(`Compra registrada. PEP: ${fmt(isNaN(newPep) ? form.precioUnitCUP : newPep)} CUP`, 'ok');
-    setModal(false); setForm({ productoId: 0, cantidad: 0, precioUnitCUP: 0, precioUnitUSD: 0, nota: '' }); load();
+    setModal(false); setForm({ productoId: 0, cantidad: 0, precioUnitCUP: 0, precioUnitUSD: 0, nota: '', proveedor: '' }); load();
   };
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4"><p className="text-sm" style={{ color: 'var(--text2)' }}>{compras.length} registros</p><HelpBtn text={HELP.purchases} /></div>
       <div className="flex justify-end mb-4"><button className="btn btn-primary" onClick={() => setModal(true)}>+ Nueva Compra</button></div>
-      <div className="card table-wrap"><table><thead><tr><th>Fecha</th><th>Producto</th><th>Cant.</th><th>P.Unit CUP</th><th>P.Unit USD</th><th>Total CUP</th><th>Total USD</th></tr></thead><tbody>{[...compras].sort((a, b) => b.fecha - a.fecha).map(c => (<tr key={c.id}><td className="text-xs">{fmtDate(c.fecha)}</td><td>{c.productoNombre}</td><td>{c.cantidad}</td><td>{fmt(c.precioUnitCUP)}</td><td>{fmt(c.precioUnitUSD)}</td><td className="font-semibold">{fmt(c.totalCUP)}</td><td>{fmt(c.totalUSD)}</td></tr>))}</tbody></table></div>
+      <div className="card table-wrap"><table><thead><tr><th>Fecha</th><th>Producto</th><th>Proveedor</th><th>Cant.</th><th>P.Unit CUP</th><th>P.Unit USD</th><th>Total CUP</th></tr></thead><tbody>{[...compras].sort((a, b) => b.fecha - a.fecha).map((c: any) => (<tr key={c.id}><td className="text-xs">{fmtDate(c.fecha)}</td><td>{c.productoNombre}</td><td>{c.proveedor || '-'}</td><td>{c.cantidad}</td><td>{fmt(c.precioUnitCUP)}</td><td>{fmt(c.precioUnitUSD)}</td><td className="font-semibold">{fmt(c.totalCUP)}</td></tr>))}</tbody></table></div>
+      
       <Modal open={modal} onClose={() => setModal(false)} title="Registrar Compra">
         <div className="space-y-3">
           <div><label className="text-xs font-medium">Producto</label><select className="input" value={form.productoId} onChange={e => setForm(f => ({ ...f, productoId: +e.target.value }))}><option value={0}>Seleccionar...</option>{productos.map(p => <option key={p.id} value={p.id}>{p.nombre} (Stock: {p.stock})</option>)}</select></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={form.cantidad} onChange={e => setForm(f => ({ ...f, cantidad: +e.target.value }))} /></div>
-            <div><label className="text-xs font-medium">Nota</label><input className="input" value={form.nota} onChange={e => setForm(f => ({ ...f, nota: e.target.value }))} /></div>
-            <div><label className="text-xs font-medium">Precio Unit. CUP</label><input type="number" className="input" value={form.precioUnitCUP} onChange={e => handlePrecioCUP(+e.target.value)} /></div>
-            <div><label className="text-xs font-medium">Precio Unit. USD</label><input type="number" className="input" value={form.precioUnitUSD} onChange={e => handlePrecioUSD(+e.target.value)} /></div>
+            <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={numVal(form.cantidad)} onChange={e => setForm(f => ({ ...f, cantidad: e.target.value === '' ? 0 : +e.target.value }))} /></div>
+            <div><label className="text-xs font-medium">Proveedor</label><input className="input" value={form.proveedor} onChange={e => setForm(f => ({ ...f, proveedor: e.target.value }))} /></div>
+            <div><label className="text-xs font-medium">Precio Unit. CUP</label><input type="number" className="input" value={numVal(form.precioUnitCUP)} onChange={e => handlePrecioCUP(e.target.value === '' ? 0 : +e.target.value)} /></div>
+            <div><label className="text-xs font-medium">Precio Unit. USD</label><input type="number" className="input" value={numVal(form.precioUnitUSD)} onChange={e => handlePrecioUSD(e.target.value === '' ? 0 : +e.target.value)} /></div>
           </div>
-          {producto && <p className="text-sm p-2 rounded" style={{ background: 'var(--bg3)' }}>Total: <strong>{fmt(form.cantidad * form.precioUnitCUP)} CUP</strong> / <strong>{fmt(form.cantidad * form.precioUnitUSD)} USD</strong></p>}
-          <p className="text-xs" style={{ color: 'var(--warn)' }}>⚠️ Tasa actual: {tasa} CUP/USD. Los precios se convierten automáticamente.</p>
+          <div><label className="text-xs font-medium">Nota</label><input className="input" value={form.nota} onChange={e => setForm(f => ({ ...f, nota: e.target.value }))} /></div>
         </div>
         <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={save}>Registrar</button></div>
       </Modal>
@@ -483,7 +430,7 @@ function Purchases({ cfg }: { cfg: Record<string, any> }) {
   );
 }
 
-// ============ POS ============
+// ============ POS (REDESIGNED) ============
 function POS({ cfg }: { cfg: Record<string, any> }) {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -491,25 +438,28 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
   const [cart, setCart] = useState<VentaItem[]>([]);
   const [descuento, setDescuento] = useState(0);
   const [cobrarModal, setCobrarModal] = useState(false);
-  const [pagos, setPagos] = useState({ efCUP: 0, tfCUP: 0, crCUP: 0, efUSD: 0, tfUSD: 0, crUSD: 0 });
+  const [moneda, setMoneda] = useState<'CUP' | 'USD'>('CUP');
+  const [metodoPago, setMetodoPago] = useState<'efectivo' | 'transferencia' | 'dividido' | 'pagarTarde'>('efectivo');
+  const [pagos, setPagos] = useState({ efCUP: 0, tfCUP: 0, pagarCUP: 0, efUSD: 0, tfUSD: 0, pagarUSD: 0 });
   const [clienteId, setClienteId] = useState<number | null>(null);
   const [ticketVenta, setTicketVenta] = useState<Venta | null>(null);
-  const [pagoActivo, setPagoActivo] = useState('');
-  const [pagoMonto, setPagoMonto] = useState(0);
   const tasa = cfg.tasa || 350;
 
   const load = useCallback(async () => { setProductos(await dbGetAll<Producto>('productos')); setClientes(await dbGetAll<Cliente>('clientes')); }, []);
   useEffect(() => { load(); }, [load]);
-
-  useEffect(() => { const h = (e: KeyboardEvent) => { if (e.key === 'F4') { e.preventDefault(); if (cart.length > 0) setCobrarModal(true); } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [cart]);
 
   const fuse = new Fuse(productos.filter(p => p.ventaCUP > 0 || p.ventaUSD > 0), { keys: ['nombre', 'codigo', 'categoria'], threshold: 0.4 });
   const results = search ? fuse.search(search).slice(0, 100).map(r => r.item) : productos.filter(p => p.ventaCUP > 0 || p.ventaUSD > 0).slice(0, 100);
 
   const addToCart = (p: Producto) => {
     const ex = cart.find(c => c.productoId === p.id);
-    if (ex) { if (ex.cantidad + 1 > p.stock) { showToast('Stock insuficiente', 'err'); return; } setCart(cart.map(c => c.productoId === p.id ? { ...c, cantidad: c.cantidad + 1, subtotalCUP: (c.cantidad + 1) * c.precioCUP, subtotalUSD: (c.cantidad + 1) * c.precioUSD } : c)); }
-    else { if (p.stock <= 0) { showToast('Sin stock', 'err'); return; } setCart([...cart, { productoId: p.id!, nombre: p.nombre, codigo: p.codigo, cantidad: 1, unidad: p.unidad, precioCUP: p.ventaCUP, precioUSD: p.ventaUSD, subtotalCUP: p.ventaCUP, subtotalUSD: p.ventaUSD, pep: p.pep, pepUSD: p.pepUSD }]); }
+    if (ex) {
+      if (ex.cantidad + 1 > p.stock) { showToast('Stock insuficiente', 'err'); return; }
+      setCart(cart.map(c => c.productoId === p.id ? { ...c, cantidad: c.cantidad + 1, subtotalCUP: (c.cantidad + 1) * c.precioCUP, subtotalUSD: (c.cantidad + 1) * c.precioUSD } : c));
+    } else {
+      if (p.stock <= 0) { showToast('Sin stock', 'err'); return; }
+      setCart([...cart, { productoId: p.id!, nombre: p.nombre, codigo: p.codigo, cantidad: 1, unidad: p.unidad, precioCUP: p.ventaCUP, precioUSD: p.ventaUSD, subtotalCUP: p.ventaCUP, subtotalUSD: p.ventaUSD, pep: p.pep, pepUSD: p.pepUSD }]);
+    }
   };
 
   const updateQty = (pid: number, qty: number) => {
@@ -523,63 +473,97 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
   const subTotalUSD = cart.reduce((s, c) => s + c.subtotalUSD, 0);
   const totalCUP = subTotalCUP * (1 - descuento / 100);
   const totalUSD = subTotalUSD * (1 - descuento / 100);
-  const sumaCUP = pagos.efCUP + pagos.tfCUP + pagos.crCUP;
-  const sumaUSD = pagos.efUSD + pagos.tfUSD + pagos.crUSD;
+  const totalMoneda = moneda === 'CUP' ? totalCUP : totalUSD;
 
-  const addPago = (tipo: string) => {
-    if (pagoMonto <= 0) return;
-    const n = { ...pagos };
-    if (tipo === 'efCUP') n.efCUP += pagoMonto;
-    else if (tipo === 'tfCUP') n.tfCUP += pagoMonto;
-    else if (tipo === 'crCUP') n.crCUP += pagoMonto;
-    else if (tipo === 'efUSD') n.efUSD += pagoMonto;
-    else if (tipo === 'tfUSD') n.tfUSD += pagoMonto;
-    else if (tipo === 'crUSD') n.crUSD += pagoMonto;
-    setPagos(n); setPagoMonto(0); setPagoActivo('');
-  };
+  // Calcular pagos automáticos según método
+  useEffect(() => {
+    if (!cobrarModal) return;
+    const newPagos = { efCUP: 0, tfCUP: 0, pagarCUP: 0, efUSD: 0, tfUSD: 0, pagarUSD: 0 };
+    if (moneda === 'CUP') {
+      if (metodoPago === 'efectivo') newPagos.efCUP = totalCUP;
+      else if (metodoPago === 'transferencia') newPagos.tfCUP = totalCUP;
+      else if (metodoPago === 'pagarTarde') newPagos.pagarCUP = totalCUP;
+      // dividido: se deja en 0 para que el usuario lo configure
+    } else {
+      if (metodoPago === 'efectivo') newPagos.efUSD = totalUSD;
+      else if (metodoPago === 'transferencia') newPagos.tfUSD = totalUSD;
+      else if (metodoPago === 'pagarTarde') newPagos.pagarUSD = totalUSD;
+    }
+    setPagos(newPagos);
+  }, [metodoPago, moneda, cobrarModal, totalCUP, totalUSD]);
 
   const confirmarVenta = async () => {
     if (cart.length === 0) { showToast('Carrito vacío', 'err'); return; }
-    // Auto-asignar si no hay pagos
-    let p = { ...pagos };
-    if (sumaCUP === 0 && sumaUSD === 0) {
-      if (totalCUP > 0) p.efCUP = totalCUP;
-      else if (totalUSD > 0) p.efUSD = totalUSD;
-    }
-    if (Math.abs((p.efCUP + p.tfCUP + p.crCUP) - totalCUP) > 0.5 && totalCUP > 0) { showToast('Pagos CUP no coinciden', 'err'); return; }
-    if (Math.abs((p.efUSD + p.tfUSD + p.crUSD) - totalUSD) > 0.01 && totalUSD > 0) { showToast('Pagos USD no coinciden', 'err'); return; }
-    if ((p.crCUP > 0 || p.crUSD > 0) && !clienteId) { showToast('Cliente requerido para crédito', 'err'); return; }
+    const tienePagarTarde = pagos.pagarCUP > 0 || pagos.pagarUSD > 0;
+    if (tienePagarTarde && !clienteId) { showToast('Seleccione cliente para "Pagar más tarde"', 'err'); return; }
     for (const item of cart) { const pr = productos.find(x => x.id === item.productoId); if (!pr || pr.stock < item.cantidad) { showToast(`Stock insuficiente: ${item.nombre}`, 'err'); return; } }
 
-    const venta: Venta = { num: genVentaNum(), fecha: Date.now(), items: cart, descuento, totalCUP, totalUSD, pagos: p, clienteId, clienteNombre: clientes.find(c => c.id === clienteId)?.nombre || '', estado: 'pagada', creditoCUP: p.crCUP, creditoUSD: p.crUSD };
+    const venta: Venta = {
+      num: genVentaNum(), fecha: Date.now(), items: cart, descuento,
+      totalCUP, totalUSD, pagos, clienteId,
+      clienteNombre: clientes.find(c => c.id === clienteId)?.nombre || '',
+      estado: 'pagada',
+      pagarMasTardeCUP: pagos.pagarCUP, pagarMasTardeUSD: pagos.pagarUSD
+    };
     await dbAdd('ventas', venta);
     for (const item of cart) { const pr = productos.find(x => x.id === item.productoId)!; await dbPut('productos', { ...pr, stock: pr.stock - item.cantidad }); }
-    if ((p.crCUP > 0 || p.crUSD > 0) && clienteId) { const cl = clientes.find(c => c.id === clienteId)!; await dbPut('clientes', { ...cl, saldoCUP: Math.max(0, cl.saldoCUP + p.crCUP), saldoUSD: Math.max(0, cl.saldoUSD + p.crUSD), compras: cl.compras + 1, ultimaCompra: Date.now() }); }
-    else if (clienteId) { const cl = clientes.find(c => c.id === clienteId)!; await dbPut('clientes', { ...cl, compras: cl.compras + 1, ultimaCompra: Date.now() }); }
+    if (tienePagarTarde && clienteId) {
+      const cl = clientes.find(c => c.id === clienteId)!;
+      await dbPut('clientes', { ...cl, saldoCUP: Math.max(0, cl.saldoCUP + pagos.pagarCUP), saldoUSD: Math.max(0, cl.saldoUSD + pagos.pagarUSD), compras: cl.compras + 1, ultimaCompra: Date.now() });
+    } else if (clienteId) {
+      const cl = clientes.find(c => c.id === clienteId)!;
+      await dbPut('clientes', { ...cl, compras: cl.compras + 1, ultimaCompra: Date.now() });
+    }
 
     setTicketVenta(venta); showToast(`Venta ${venta.num}`, 'ok');
-    setCart([]); setDescuento(0); setPagos({ efCUP: 0, tfCUP: 0, crCUP: 0, efUSD: 0, tfUSD: 0, crUSD: 0 }); setClienteId(null); setCobrarModal(false); load();
+    setCart([]); setDescuento(0); setPagos({ efCUP: 0, tfCUP: 0, pagarCUP: 0, efUSD: 0, tfUSD: 0, pagarUSD: 0 }); setClienteId(null); setCobrarModal(false); load();
   };
 
   return (
     <div className="pos-grid">
       <div className="flex flex-col gap-3 overflow-hidden">
-        <div className="flex gap-2 items-center">
-          <input className="input flex-1" placeholder="🔍 Buscar producto..." value={search} onChange={e => setSearch(e.target.value)} autoFocus />
-          <HelpBtn text={HELP.pos} />
-        </div>
-        <div className="overflow-auto flex-1 grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-          {results.map(p => (<div key={p.id} className="product-card p-2" onClick={() => addToCart(p)}>{p.foto ? <img src={p.foto} alt={p.nombre} style={{ height: 60 }} /> : <div style={{ height: 60, background: 'var(--bg3)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>📦</div>}<h4 className="font-semibold text-xs mt-1 truncate">{p.nombre}</h4><div className="flex justify-between items-center mt-1"><span className="text-xs font-bold" style={{ color: 'var(--primary)' }}>{fmt(p.ventaCUP)}</span><span className="text-xs" style={{ color: p.stock <= p.min ? 'var(--err)' : 'var(--text2)' }}>{p.stock}</span></div></div>))}
+        <input className="input" placeholder="🔍 Buscar producto..." value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+        {/* LISTA EN FILAS HORIZONTALES */}
+        <div className="overflow-auto flex-1">
+          <div className="card">
+            <table>
+              <thead><tr><th>Producto</th><th>Código</th><th>Precio</th><th>Stock</th><th></th></tr></thead>
+              <tbody>
+                {results.map(p => (
+                  <tr key={p.id} className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20" onClick={() => addToCart(p)}>
+                    <td className="font-medium">{p.nombre}</td>
+                    <td className="font-mono text-xs">{p.codigo}</td>
+                    <td><span style={{ color: 'var(--primary)' }} className="font-bold">{fmt(p.ventaCUP)}</span> <span className="text-xs" style={{ color: 'var(--text2)' }}>/ {fmt(p.ventaUSD)} USD</span></td>
+                    <td><span className={p.stock <= p.min ? 'text-red-500 font-bold' : ''}>{p.stock}</span></td>
+                    <td><button className="btn btn-primary btn-sm">+ Agregar</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
       <div className="card p-4 flex flex-col overflow-hidden">
         <h3 className="font-bold mb-2">🛒 Carrito ({cart.length})</h3>
         <div className="flex-1 overflow-auto space-y-2 mb-3">
-          {cart.map(c => (<div key={c.productoId} className="p-2 rounded flex items-center gap-2" style={{ background: 'var(--bg3)' }}><div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{c.nombre}</p><p className="text-xs" style={{ color: 'var(--text2)' }}>{fmt(c.precioCUP)} × {c.cantidad}</p></div><div className="flex items-center gap-1"><button className="btn btn-ghost btn-sm" onClick={() => updateQty(c.productoId, c.cantidad - 1)}>-</button><input type="number" className="input w-12 text-center text-xs" value={c.cantidad} onChange={e => updateQty(c.productoId, +e.target.value)} /><button className="btn btn-ghost btn-sm" onClick={() => updateQty(c.productoId, c.cantidad + 1)}>+</button></div><span className="text-sm font-bold w-16 text-right">{fmt(c.subtotalCUP)}</span><button className="text-red-500" onClick={() => setCart(cart.filter(x => x.productoId !== c.productoId))}>✕</button></div>))}
+          {cart.map(c => (
+            <div key={c.productoId} className="p-2 rounded flex items-center gap-2" style={{ background: 'var(--bg3)' }}>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{c.nombre}</p>
+                <p className="text-xs" style={{ color: 'var(--text2)' }}>{fmt(c.precioCUP)} × {c.cantidad} = {fmt(c.subtotalCUP)}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <button className="btn btn-ghost btn-sm" onClick={() => updateQty(c.productoId, c.cantidad - 1)}>-</button>
+                <input type="number" className="input w-12 text-center text-xs" value={c.cantidad} onChange={e => updateQty(c.productoId, +e.target.value)} />
+                <button className="btn btn-ghost btn-sm" onClick={() => updateQty(c.productoId, c.cantidad + 1)}>+</button>
+              </div>
+              <button className="text-red-500" onClick={() => setCart(cart.filter(x => x.productoId !== c.productoId))}>✕</button>
+            </div>
+          ))}
         </div>
         <div className="border-t pt-3 space-y-2" style={{ borderColor: 'var(--border)' }}>
           <div className="flex justify-between items-center"><label className="text-sm">Descuento %</label><input type="number" className="input w-20 text-right" value={descuento} onChange={e => setDescuento(Math.min(100, Math.max(0, +e.target.value)))} /></div>
-          <div className="flex justify-between"><span>Total CUP:</span><span className="font-bold text-lg">{fmt(totalCUP)}</span></div>
+          <div className="flex justify-between"><span>Total CUP:</span><span className="font-bold">{fmt(totalCUP)}</span></div>
           <div className="flex justify-between"><span>Total USD:</span><span className="font-bold">{fmt(totalUSD)}</span></div>
           <div className="flex gap-2"><button className="btn btn-ghost flex-1" onClick={() => { setCart([]); setDescuento(0); }}>Vaciar</button><button className="btn btn-ok flex-1" onClick={() => cart.length > 0 && setCobrarModal(true)}>💰 COBRAR</button></div>
         </div>
@@ -588,34 +572,71 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
       <Modal open={cobrarModal} onClose={() => setCobrarModal(false)} title="💰 Cobrar" wide>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 rounded text-center" style={{ background: 'var(--bg3)' }}><p className="text-xs" style={{ color: 'var(--text2)' }}>TOTAL CUP</p><p className="text-3xl font-bold">{fmt(totalCUP)}</p><p className="equivalent">≈ {fmt(toUSD(totalCUP, tasa))} USD</p></div>
-            <div className="p-4 rounded text-center" style={{ background: 'var(--bg3)' }}><p className="text-xs" style={{ color: 'var(--text2)' }}>TOTAL USD</p><p className="text-3xl font-bold">{fmt(totalUSD)}</p><p className="equivalent">≈ {fmt(toCUP(totalUSD, tasa))} CUP</p></div>
+            <div className="p-4 rounded text-center" style={{ background: 'var(--bg3)' }}><p className="text-xs" style={{ color: 'var(--text2)' }}>TOTAL CUP</p><p className="text-2xl font-bold">{fmt(totalCUP)}</p></div>
+            <div className="p-4 rounded text-center" style={{ background: 'var(--bg3)' }}><p className="text-xs" style={{ color: 'var(--text2)' }}>TOTAL USD</p><p className="text-2xl font-bold">{fmt(totalUSD)}</p></div>
           </div>
-          <div><label className="text-xs font-medium">Cliente (requerido para crédito)</label><select className="input" value={clienteId || ''} onChange={e => setClienteId(e.target.value ? +e.target.value : null)}><option value="">Sin cliente</option>{clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><p className="text-sm font-semibold mb-2">CUP</p><div className="space-y-2"><button className={`btn w-full ${pagoActivo === 'efCUP' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPagoActivo('efCUP')}>💵 Efectivo</button><button className={`btn w-full ${pagoActivo === 'tfCUP' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPagoActivo('tfCUP')}>💳 Tarjeta/Transf.</button><button className={`btn w-full ${pagoActivo === 'crCUP' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPagoActivo('crCUP')}>📝 Crédito (CxC)</button></div></div>
-            <div><p className="text-sm font-semibold mb-2">USD</p><div className="space-y-2"><button className={`btn w-full ${pagoActivo === 'efUSD' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPagoActivo('efUSD')}>💵 Efectivo</button><button className={`btn w-full ${pagoActivo === 'tfUSD' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPagoActivo('tfUSD')}>💳 Tarjeta/Transf.</button><button className={`btn w-full ${pagoActivo === 'crUSD' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPagoActivo('crUSD')}>📝 Crédito (CxC)</button></div></div>
+
+          {/* 1. SELECCIONAR MONEDA */}
+          <div>
+            <p className="text-sm font-semibold mb-2">1. Moneda:</p>
+            <div className="flex gap-2">
+              <button className={`btn flex-1 ${moneda === 'CUP' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMoneda('CUP')}>💵 CUP</button>
+              <button className={`btn flex-1 ${moneda === 'USD' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMoneda('USD')}>💵 USD</button>
+            </div>
           </div>
-          {pagoActivo && (<div className="p-3 rounded" style={{ background: 'var(--bg3)' }}><p className="text-sm font-medium mb-2">Monto:</p><div className="flex gap-2"><input type="number" className="input flex-1" value={pagoMonto} onChange={e => setPagoMonto(+e.target.value)} autoFocus /><button className="btn btn-primary" onClick={() => addPago(pagoActivo)}>Agregar</button></div></div>)}
-          <div className="p-3 rounded space-y-1" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold">Resumen:</p>
+
+          {/* 2. SELECCIONAR MÉTODO */}
+          <div>
+            <p className="text-sm font-semibold mb-2">2. Método de pago:</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button className={`btn ${metodoPago === 'efectivo' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMetodoPago('efectivo')}>💵 Efectivo</button>
+              <button className={`btn ${metodoPago === 'transferencia' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMetodoPago('transferencia')}>💳 Transferencia</button>
+              <button className={`btn ${metodoPago === 'dividido' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMetodoPago('dividido')}>🔀 Dividido</button>
+              <button className={`btn ${metodoPago === 'pagarTarde' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMetodoPago('pagarTarde')}>📝 Pagar más tarde</button>
+            </div>
+          </div>
+
+          {/* 3. CLIENTE (si es pagar más tarde) */}
+          {(metodoPago === 'pagarTarde' || metodoPago === 'dividido') && (
+            <div>
+              <label className="text-xs font-medium">Cliente (requerido para pagar más tarde)</label>
+              <select className="input" value={clienteId || ''} onChange={e => setClienteId(e.target.value ? +e.target.value : null)}>
+                <option value="">Sin cliente</option>
+                {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* 4. CONFIGURAR PAGO DIVIDIDO */}
+          {metodoPago === 'dividido' && (
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-sm font-semibold mb-2">Dividir pago (Total: {fmt(totalMoneda)} {moneda})</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs">Efectivo</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.efCUP : pagos.efUSD)} onChange={e => { const v = +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, efCUP: v })); else setPagos(p => ({ ...p, efUSD: v })); }} /></div>
+                <div><label className="text-xs">Transferencia</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.tfCUP : pagos.tfUSD)} onChange={e => { const v = +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, tfCUP: v })); else setPagos(p => ({ ...p, tfUSD: v })); }} /></div>
+                <div><label className="text-xs">Pagar más tarde</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.pagarCUP : pagos.pagarUSD)} onChange={e => { const v = +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, pagarCUP: v })); else setPagos(p => ({ ...p, pagarUSD: v })); }} /></div>
+              </div>
+              <p className="text-xs mt-2">Suma: {fmt((moneda === 'CUP' ? pagos.efCUP + pagos.tfCUP + pagos.pagarCUP : pagos.efUSD + pagos.tfUSD + pagos.pagarUSD))} / {fmt(totalMoneda)}</p>
+            </div>
+          )}
+
+          {/* RESUMEN */}
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-sm font-semibold">Resumen:</p>
             {pagos.efCUP > 0 && <p className="text-xs">💵 Efectivo CUP: {fmt(pagos.efCUP)}</p>}
-            {pagos.tfCUP > 0 && <p className="text-xs">💳 Tarjeta CUP: {fmt(pagos.tfCUP)}</p>}
-            {pagos.crCUP > 0 && <p className="text-xs">📝 Crédito CUP: {fmt(pagos.crCUP)}</p>}
+            {pagos.tfCUP > 0 && <p className="text-xs">💳 Transferencia CUP: {fmt(pagos.tfCUP)}</p>}
+            {pagos.pagarCUP > 0 && <p className="text-xs">📝 Pagar más tarde CUP: {fmt(pagos.pagarCUP)}</p>}
             {pagos.efUSD > 0 && <p className="text-xs">💵 Efectivo USD: {fmt(pagos.efUSD)}</p>}
-            {pagos.tfUSD > 0 && <p className="text-xs">💳 Tarjeta USD: {fmt(pagos.tfUSD)}</p>}
-            {pagos.crUSD > 0 && <p className="text-xs">📝 Crédito USD: {fmt(pagos.crUSD)}</p>}
-            <hr className="my-2" />
-            <p className="text-sm font-bold">CUP: {fmt(sumaCUP)} / {fmt(totalCUP)} {Math.abs(sumaCUP - totalCUP) < 0.5 || totalCUP === 0 ? '✓' : '✗'}</p>
-            <p className="text-sm font-bold">USD: {fmt(sumaUSD)} / {fmt(totalUSD)} {Math.abs(sumaUSD - totalUSD) < 0.01 || totalUSD === 0 ? '✓' : '✗'}</p>
+            {pagos.tfUSD > 0 && <p className="text-xs">💳 Transferencia USD: {fmt(pagos.tfUSD)}</p>}
+            {pagos.pagarUSD > 0 && <p className="text-xs">📝 Pagar más tarde USD: {fmt(pagos.pagarUSD)}</p>}
           </div>
         </div>
         <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setCobrarModal(false)}>Cancelar</button><button className="btn btn-ok" onClick={confirmarVenta}>✓ Confirmar</button></div>
       </Modal>
 
       <Modal open={!!ticketVenta} onClose={() => setTicketVenta(null)} title="Ticket">
-        {ticketVenta && (<div className="print-area ticket"><div className="text-center mb-2"><p className="font-bold">{cfg.biz}</p><p>No: {ticketVenta.num}</p><p>{fmtDateTime(ticketVenta.fecha)}</p></div><hr className="my-2" />{ticketVenta.items.map((it, i) => (<div key={i} className="ticket-line"><span>{it.cantidad}× {it.nombre}</span><span>{fmt(it.subtotalCUP)}</span></div>))}<hr className="my-2" /><div className="ticket-line font-bold"><span>TOTAL CUP</span><span>{fmt(ticketVenta.totalCUP)}</span></div><div className="ticket-line"><span>TOTAL USD</span><span>{fmt(ticketVenta.totalUSD)}</span></div></div>)}
-        <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-primary" onClick={() => window.print()}>🖨️ Imprimir</button><button className="btn btn-ghost" onClick={() => setTicketVenta(null)}>Cerrar</button></div>
+        {ticketVenta && (<div className="ticket"><div className="text-center mb-2"><p className="font-bold">{cfg.biz}</p><p>No: {ticketVenta.num}</p><p>{fmtDateTime(ticketVenta.fecha)}</p></div><hr className="my-2" />{ticketVenta.items.map((it, i) => (<div key={i} className="ticket-line"><span>{it.cantidad}× {it.nombre}</span><span>{fmt(it.subtotalCUP)}</span></div>))}<hr className="my-2" /><div className="ticket-line font-bold"><span>TOTAL CUP</span><span>{fmt(ticketVenta.totalCUP)}</span></div><div className="ticket-line"><span>TOTAL USD</span><span>{fmt(ticketVenta.totalUSD)}</span></div></div>)}
+        <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-primary" onClick={() => window.print()}>🖨️</button><button className="btn btn-ghost" onClick={() => setTicketVenta(null)}>Cerrar</button></div>
       </Modal>
     </div>
   );
@@ -643,17 +664,23 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const ventasHoy = ventas.filter(v => v.fecha >= today.getTime() && v.estado === 'pagada');
-  
-  // Caja real del día
   const cajaCUPHoy = ventasHoy.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
   const cajaUSDHoy = ventasHoy.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
   const gananciaHoy = ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => si + (it.precioCUP - it.pep) * it.cantidad * (1 - v.descuento / 100), 0), 0);
+
+  // Totales del rango de fechas
+  const totalRangoCUP = filtered.filter(v => v.estado === 'pagada').reduce((s, v) => s + v.totalCUP, 0);
+  const totalRangoUSD = filtered.filter(v => v.estado === 'pagada').reduce((s, v) => s + v.totalUSD, 0);
 
   const anular = async () => {
     if (!anularModal || !motivo || !detalle.trim()) { showToast('Complete los campos', 'err'); return; }
     const productos = await dbGetAll<Producto>('productos');
     for (const item of anularModal.items) { const p = productos.find(pr => pr.id === item.productoId); if (p) await dbPut('productos', { ...p, stock: p.stock + item.cantidad }); }
-    if (anularModal.creditoCUP > 0 || anularModal.creditoUSD > 0) { const clientes = await dbGetAll<Cliente>('clientes'); const cl = clientes.find(c => c.id === anularModal.clienteId); if (cl) await dbPut('clientes', { ...cl, saldoCUP: Math.max(0, cl.saldoCUP - anularModal.creditoCUP), saldoUSD: Math.max(0, cl.saldoUSD - anularModal.creditoUSD) }); }
+    if (anularModal.pagarMasTardeCUP > 0 || anularModal.pagarMasTardeUSD > 0) {
+      const clientes = await dbGetAll<Cliente>('clientes');
+      const cl = clientes.find(c => c.id === anularModal.clienteId);
+      if (cl) await dbPut('clientes', { ...cl, saldoCUP: Math.max(0, cl.saldoCUP - anularModal.pagarMasTardeCUP), saldoUSD: Math.max(0, cl.saldoUSD - anularModal.pagarMasTardeUSD) });
+    }
     await dbPut('ventas', { ...anularModal, estado: 'anulada' as const });
     await dbAdd('anulaciones', { ventaId: anularModal.id!, num: anularModal.num, fechaAnulacion: Date.now(), fechaOriginal: anularModal.fecha, totalCUP: anularModal.totalCUP, totalUSD: anularModal.totalUSD, motivo, detalle, estado: 'pendiente', items: anularModal.items, auditado: null } as Anulacion);
     showToast('Venta anulada', 'ok'); setAnularModal(null); setMotivo(''); setDetalle(''); load();
@@ -661,9 +688,6 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-3"><div></div><HelpBtn text={HELP.sales} /></div>
-      
-      {/* CAJA DEL DÍA */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div className="card p-4" style={{ borderLeft: '4px solid var(--ok)' }}>
           <p className="kpi-label">💵 Caja CUP Hoy</p>
@@ -679,8 +703,8 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
 
       <div className="grid-3 mb-4">
         <div className="kpi"><div className="kpi-label">Ventas Hoy</div><div className="kpi-value">{ventasHoy.length}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoy)}</div><p className="equivalent">≈ {fmt(toUSD(gananciaHoy, tasa))} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Total Ventas</div><div className="kpi-value">{ventas.filter(v => v.estado === 'pagada').length}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoy)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Total Rango</div><div className="kpi-value">{fmt(totalRangoCUP)}</div><p className="equivalent">USD: {fmt(totalRangoUSD)}</p></div>
       </div>
 
       <div className="flex flex-wrap gap-3 mb-4">
@@ -696,7 +720,7 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
       </Modal>
 
       <Modal open={!!viewTicket} onClose={() => setViewTicket(null)} title="Detalle">
-        {viewTicket && (<div className="ticket"><p className="font-bold">{viewTicket.num}</p><p>{fmtDateTime(viewTicket.fecha)}</p><hr className="my-2" />{viewTicket.items.map((it, i) => (<div key={i} className="ticket-line"><span>{it.cantidad}× {it.nombre}</span><span>{fmt(it.subtotalCUP)}</span></div>))}<hr className="my-2" /><div className="ticket-line font-bold"><span>TOTAL</span><span>{fmt(viewTicket.totalCUP)} CUP</span></div><div className="ticket-line"><span>USD</span><span>{fmt(viewTicket.totalUSD)}</span></div></div>)}
+        {viewTicket && (<div className="ticket"><p className="font-bold">{viewTicket.num}</p><p>{fmtDateTime(viewTicket.fecha)}</p><hr className="my-2" />{viewTicket.items.map((it, i) => (<div key={i} className="ticket-line"><span>{it.cantidad}× {it.nombre}</span><span>{fmt(it.subtotalCUP)}</span></div>))}<hr className="my-2" /><div className="ticket-line font-bold"><span>TOTAL</span><span>{fmt(viewTicket.totalCUP)} CUP</span></div></div>)}
       </Modal>
     </div>
   );
@@ -707,8 +731,9 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [guardado, setGuardado] = useState(false);
   const tasa = cfg.tasa || 350;
-  const pctDependienta = cfg.pctDependienta || 0;
+  const pctDep = cfg.pctDependienta || 0;
 
   const load = useCallback(async () => {
     setVentas(await dbGetAll<Venta>('ventas'));
@@ -717,104 +742,150 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  // Calcular inicio de semana (lunes)
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0=dom, 1=lun...
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  const weekStart = new Date(now); weekStart.setDate(now.getDate() + mondayOffset); weekStart.setHours(0, 0, 0, 0);
-  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6); weekEnd.setHours(23, 59, 59, 999);
-
-  const ventasSemana = ventas.filter(v => v.fecha >= weekStart.getTime() && v.fecha <= weekEnd.getTime() && v.estado === 'pagada');
-  const gastosSemana = gastos.filter(g => g.fecha >= weekStart.getTime() && g.fecha <= weekEnd.getTime());
+  const week = getWeekRange();
+  const ventasSemana = ventas.filter(v => v.fecha >= week.start && v.fecha <= week.end && v.estado === 'pagada');
+  const gastosSemana = gastos.filter(g => g.fecha >= week.start && g.fecha <= week.end);
 
   const totalCUP = ventasSemana.reduce((s, v) => s + v.totalCUP, 0);
   const totalUSD = ventasSemana.reduce((s, v) => s + v.totalUSD, 0);
   const ganancia = ventasSemana.reduce((s, v) => s + v.items.reduce((si, it) => si + (it.precioCUP - it.pep) * it.cantidad * (1 - v.descuento / 100), 0), 0);
   const gastosTotal = gastosSemana.reduce((s, g) => s + g.montoCUP, 0);
   const utilidad = ganancia - gastosTotal;
-  const inversion = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
+  const inversionCUP = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
+  const inversionUSD = toUSD(inversionCUP, tasa);
 
-  // Distribución inversionistas
-  const inv1 = utilidad * 0.5;
-  const inv2 = utilidad * 0.5;
-  const dependienta = inv1 * (pctDependienta / 100);
-  const inv1Neto = inv1 - dependienta;
+  const accionista1 = utilidad * 0.5;
+  const accionista2 = utilidad * 0.5;
+  const dependienta = accionista2 * (pctDep / 100);
+  const accionista2Neto = accionista2 - dependienta;
 
-  // Caja semanal
   const cajaCUP = ventasSemana.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
   const cajaUSD = ventasSemana.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
 
+  const guardarCierre = async () => {
+    const cierre: CierreSemanal = {
+      semanaInicio: week.start, semanaFin: week.end,
+      ventasIds: ventasSemana.map(v => v.id!),
+      totalVentasCUP: totalCUP, totalVentasUSD: totalUSD,
+      gananciaBrutaCUP: ganancia, gananciaBrutaUSD: toUSD(ganancia, tasa),
+      totalGastosCUP: gastosTotal, totalGastosUSD: 0,
+      gananciaNetaCUP: utilidad, gananciaNetaUSD: toUSD(utilidad, tasa),
+      inversionInventarioCUP: inversionCUP, inversionInventarioUSD: inversionUSD,
+      accionista1, accionista2, dependienta, accionista2Neto,
+      cajaCUP, cajaUSD, tasaUsada: tasa, creado: Date.now()
+    };
+    await dbAdd('cierres', cierre);
+    showToast('Cierre guardado en histórico', 'ok');
+    setGuardado(true);
+  };
+
   return (
     <div>
-      <div className="flex justify-between items-center mb-3"><div></div><HelpBtn text={HELP.weekly} /></div>
       <div className="card p-4 mb-4" style={{ borderLeft: '4px solid var(--primary)' }}>
-        <p className="text-sm font-semibold">📅 Semana: {fmtDate(weekStart.getTime())} - {fmtDate(weekEnd.getTime())}</p>
+        <p className="text-sm font-semibold">📅 Semana: {week.startStr} - {week.endStr}</p>
         <p className="text-xs" style={{ color: 'var(--text2)' }}>{ventasSemana.length} ventas realizadas</p>
       </div>
 
       <div className="grid-4 mb-6">
         <div className="kpi"><div className="kpi-label">Venta Total CUP</div><div className="kpi-value">{fmt(totalCUP)}</div><p className="equivalent">≈ {fmt(toUSD(totalCUP, tasa))} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Venta Total USD</div><div className="kpi-value">{fmt(totalUSD)}</div><p className="equivalent">≈ {fmt(toCUP(totalUSD, tasa))} CUP</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia Bruta</div><div className="kpi-value">{fmt(ganancia)}</div><p className="equivalent">≈ {fmt(toUSD(ganancia, tasa))} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Gastos Semana</div><div className="kpi-value">{fmt(gastosTotal)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Venta Total USD</div><div className="kpi-value">{fmt(totalUSD)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia Bruta</div><div className="kpi-value">{fmt(ganancia)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Gastos</div><div className="kpi-value">{fmt(gastosTotal)}</div></div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="card p-4" style={{ borderLeft: '4px solid var(--ok)' }}>
-          <h3 className="font-bold mb-2">💰 Caja Semanal CUP</h3>
-          <p className="text-2xl font-bold">{fmt(cajaCUP)} CUP</p>
-          <p className="equivalent">≈ {fmt(toUSD(cajaCUP, tasa))} USD</p>
-        </div>
-        <div className="card p-4" style={{ borderLeft: '4px solid var(--info)' }}>
-          <h3 className="font-bold mb-2">💰 Caja Semanal USD</h3>
-          <p className="text-2xl font-bold">{fmt(cajaUSD)} USD</p>
-          <p className="equivalent">≈ {fmt(toCUP(cajaUSD, tasa))} CUP</p>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">💰 Inversión Inventario</div><div className="kpi-value">{fmt(inversionCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionUSD)} USD</p></div>
+        <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">💰 Ganancia Neta</div><div className="kpi-value">{fmt(utilidad)} CUP</div><p className="equivalent">(Ganancia - Gastos)</p></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">💵 Caja Semanal</div><div className="text-sm font-bold">{fmt(cajaCUP)} CUP</div><div className="text-sm font-bold">{fmt(cajaUSD)} USD</div></div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}>
-          <div className="kpi-label">Utilidad Neta (Ganancia - Gastos)</div>
-          <div className="kpi-value">{fmt(utilidad)} CUP</div>
-          <p className="equivalent">≈ {fmt(toUSD(utilidad, tasa))} USD</p>
-        </div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}>
-          <div className="kpi-label">💰 Inversión en Inventario</div>
-          <div className="kpi-value">{fmt(inversion)} CUP</div>
-          <p className="equivalent">≈ {fmt(toUSD(inversion, tasa))} USD</p>
-        </div>
-      </div>
-
-      {/* DISTRIBUCIÓN */}
       <div className="card p-6 mb-6">
         <h3 className="font-bold text-lg mb-4">📊 Distribución de Ganancias</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-sm font-semibold" style={{ color: 'var(--primary)' }}>👤 Inversionista 1 (50%)</p>
-            <p className="text-xl font-bold">{fmt(inv1)} CUP</p>
-            <p className="equivalent">≈ {fmt(toUSD(inv1, tasa))} USD</p>
-            {pctDependienta > 0 && (<><p className="text-xs mt-2" style={{ color: 'var(--err)' }}>- Dependienta ({pctDependienta}%): {fmt(dependienta)}</p><p className="text-sm font-bold mt-1">Neto: {fmt(inv1Neto)} CUP</p></>)}
+            <p className="text-sm font-semibold" style={{ color: 'var(--primary)' }}>👤 {cfg.accionista1Nombre || 'Accionista 1'} (50%)</p>
+            <p className="text-xl font-bold">{fmt(accionista1)} CUP</p>
           </div>
           <div className="p-4 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-sm font-semibold" style={{ color: 'var(--ok)' }}>👤 Inversionista 2 (50%)</p>
-            <p className="text-xl font-bold">{fmt(inv2)} CUP</p>
-            <p className="equivalent">≈ {fmt(toUSD(inv2, tasa))} USD</p>
+            <p className="text-sm font-semibold" style={{ color: 'var(--ok)' }}>👤 {cfg.accionista2Nombre || 'Accionista 2'} (50%)</p>
+            <p className="text-xl font-bold">{fmt(accionista2)} CUP</p>
+            {pctDep > 0 && <p className="text-xs" style={{ color: 'var(--err)' }}>- {cfg.dependientaNombre || 'Dependienta'}: {fmt(dependienta)}<br/>Neto: {fmt(accionista2Neto)}</p>}
           </div>
-          {pctDependienta > 0 && (
+          {pctDep > 0 && (
             <div className="p-4 rounded" style={{ background: 'var(--bg3)' }}>
-              <p className="text-sm font-semibold" style={{ color: 'var(--warn)' }}>💁 Dependienta ({pctDependienta}% del Inv1)</p>
+              <p className="text-sm font-semibold" style={{ color: 'var(--warn)' }}>💁 {cfg.dependientaNombre || 'Dependienta'} ({pctDep}% del Acc. 2)</p>
               <p className="text-xl font-bold">{fmt(dependienta)} CUP</p>
-              <p className="equivalent">≈ {fmt(toUSD(dependienta, tasa))} USD</p>
             </div>
           )}
         </div>
       </div>
 
-      <div className="card p-4">
-        <h3 className="font-semibold mb-3">Ventas de la Semana</h3>
-        <div className="table-wrap"><table><thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>CUP</th><th>USD</th></tr></thead><tbody>{ventasSemana.map(v => (<tr key={v.id}><td className="font-mono text-xs">{v.num}</td><td className="text-xs">{fmtDate(v.fecha)}</td><td>{v.clienteNombre || '-'}</td><td>{fmt(v.totalCUP)}</td><td>{fmt(v.totalUSD)}</td></tr>))}</tbody></table></div>
-        {ventasSemana.length === 0 && <p className="text-center py-4" style={{ color: 'var(--text2)' }}>Sin ventas esta semana</p>}
+      <div className="flex justify-end">
+        <button className="btn btn-primary" onClick={guardarCierre} disabled={guardado}>{guardado ? '✓ Guardado' : '💾 Guardar Cierre en Histórico'}</button>
       </div>
+    </div>
+  );
+}
+
+// ============ CIERRE HISTORY ============
+function CierreHistory({ cfg }: { cfg: Record<string, any> }) {
+  const [cierres, setCierres] = useState<CierreSemanal[]>([]);
+  const [viewDetail, setViewDetail] = useState<CierreSemanal | null>(null);
+  const tasa = cfg.tasa || 350;
+
+  const load = useCallback(async () => { setCierres(await dbGetAll<CierreSemanal>('cierres')); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const del = async (c: CierreSemanal) => {
+    if (!confirm('¿Eliminar este cierre?')) return;
+    await dbDelete('cierres', c.id!); load();
+  };
+
+  return (
+    <div>
+      <div className="card table-wrap">
+        <table>
+          <thead><tr><th>Semana</th><th>Ventas</th><th>Ganancia Bruta</th><th>Gastos</th><th>Ganancia Neta</th><th>Inversión</th><th></th></tr></thead>
+          <tbody>
+            {[...cierres].sort((a, b) => b.creado - a.creado).map(c => (
+              <tr key={c.id}>
+                <td className="text-xs">{fmtDate(c.semanaInicio)} - {fmtDate(c.semanaFin)}</td>
+                <td>{c.ventasIds.length}</td>
+                <td>{fmt(c.gananciaBrutaCUP)}</td>
+                <td>{fmt(c.totalGastosCUP)}</td>
+                <td className="font-bold">{fmt(c.gananciaNetaCUP)}</td>
+                <td>{fmt(c.inversionInventarioCUP)}</td>
+                <td><button className="btn btn-ghost btn-sm" onClick={() => setViewDetail(c)}>👁️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(c)}>🗑️</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {cierres.length === 0 && <p className="text-center py-8" style={{ color: 'var(--text2)' }}>Sin cierres guardados</p>}
+
+      <Modal open={!!viewDetail} onClose={() => setViewDetail(null)} title="Detalle del Cierre" wide>
+        {viewDetail && (
+          <div className="space-y-3">
+            <p><strong>Semana:</strong> {fmtDate(viewDetail.semanaInicio)} - {fmtDate(viewDetail.semanaFin)}</p>
+            <p><strong>Tasa usada:</strong> {viewDetail.tasaUsada} CUP/USD</p>
+            <hr />
+            <div className="grid grid-cols-2 gap-3">
+              <div><p className="text-xs" style={{ color: 'var(--text2)' }}>Total Ventas</p><p className="font-bold">{fmt(viewDetail.totalVentasCUP)} CUP / {fmt(viewDetail.totalVentasUSD)} USD</p></div>
+              <div><p className="text-xs" style={{ color: 'var(--text2)' }}>Ganancia Bruta</p><p className="font-bold">{fmt(viewDetail.gananciaBrutaCUP)} CUP</p></div>
+              <div><p className="text-xs" style={{ color: 'var(--text2)' }}>Gastos</p><p className="font-bold">{fmt(viewDetail.totalGastosCUP)} CUP</p></div>
+              <div><p className="text-xs" style={{ color: 'var(--text2)' }}>Ganancia Neta</p><p className="font-bold">{fmt(viewDetail.gananciaNetaCUP)} CUP</p></div>
+              <div><p className="text-xs" style={{ color: 'var(--text2)' }}>Inventario</p><p className="font-bold">{fmt(viewDetail.inversionInventarioCUP)} CUP / {fmt(viewDetail.inversionInventarioUSD)} USD</p></div>
+              <div><p className="text-xs" style={{ color: 'var(--text2)' }}>Caja</p><p className="font-bold">{fmt(viewDetail.cajaCUP)} CUP / {fmt(viewDetail.cajaUSD)} USD</p></div>
+            </div>
+            <hr />
+            <h4 className="font-semibold">Distribución:</h4>
+            <p>{cfg.accionista1Nombre || 'Accionista 1'}: {fmt(viewDetail.accionista1)} CUP</p>
+            <p>{cfg.accionista2Nombre || 'Accionista 2'}: {fmt(viewDetail.accionista2)} CUP</p>
+            <p>{cfg.dependientaNombre || 'Dependienta'}: {fmt(viewDetail.dependienta)} CUP</p>
+            <p>{cfg.accionista2Nombre || 'Accionista 2'} Neto: {fmt(viewDetail.accionista2Neto)} CUP</p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -828,7 +899,6 @@ function Cancellations({ cfg }: { cfg: Record<string, any> }) {
   const auditar = async (a: Anulacion) => { await dbPut('anulaciones', { ...a, estado: 'revertida' as const, auditado: Date.now() }); showToast('Auditada', 'ok'); load(); };
   return (
     <div>
-      <div className="flex justify-end mb-3"><HelpBtn text={HELP.cancellations} /></div>
       <div className="grid-3 mb-4"><div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Pendientes</div><div className="kpi-value">{anulaciones.filter(a => a.estado === 'pendiente').length}</div></div><div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">Auditadas</div><div className="kpi-value">{anulaciones.filter(a => a.estado === 'revertida').length}</div></div><div className="kpi"><div className="kpi-label">Total</div><div className="kpi-value">{anulaciones.length}</div></div></div>
       <div className="card table-wrap"><table><thead><tr><th>Venta</th><th>Fecha</th><th>CUP</th><th>USD</th><th>Motivo</th><th>Estado</th><th></th></tr></thead><tbody>{[...anulaciones].sort((a, b) => b.fechaAnulacion - a.fechaAnulacion).map(a => (<tr key={a.id}><td className="font-mono text-xs">{a.num}</td><td className="text-xs">{fmtDateTime(a.fechaAnulacion)}</td><td>{fmt(a.totalCUP)}</td><td>{fmt(a.totalUSD)}</td><td className="text-xs">{a.motivo}</td><td>{a.estado === 'pendiente' ? <span className="badge badge-warn">Pendiente</span> : <span className="badge badge-ok">Revertida</span>}</td><td><button className="btn btn-ghost btn-sm" onClick={() => setViewDetail(a)}>👁️</button>{a.estado === 'pendiente' && <button className="btn btn-ok btn-sm" onClick={() => auditar(a)}>✓</button>}</td></tr>))}</tbody></table></div>
       <Modal open={!!viewDetail} onClose={() => setViewDetail(null)} title="Detalle">{viewDetail && (<div className="space-y-2"><p><strong>Venta:</strong> {viewDetail.num}</p><p><strong>Motivo:</strong> {viewDetail.motivo}</p><p><strong>Detalle:</strong> {viewDetail.detalle}</p><hr />{viewDetail.items.map((it, i) => (<div key={i} className="flex justify-between text-sm"><span>{it.cantidad}× {it.nombre}</span><span>{fmt(it.subtotalCUP)}</span></div>))}</div>)}</Modal>
@@ -872,36 +942,29 @@ function Clients({ cfg }: { cfg: Record<string, any> }) {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-3"><div></div><HelpBtn text={HELP.clients} /></div>
       <div className="flex justify-between items-center mb-4"><p className="text-sm" style={{ color: 'var(--text2)' }}>{clientes.length} clientes | {conSaldo.length} con saldo</p><button className="btn btn-primary" onClick={openNew}>+ Nuevo</button></div>
-      {conSaldo.length > 0 && (<div className="card p-4 mb-4"><h3 className="font-semibold mb-3">💳 Cuentas por Cobrar</h3><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Saldo CUP</th><th>Saldo USD</th><th></th></tr></thead><tbody>{conSaldo.map(c => (<tr key={c.id}><td className="font-medium">{c.nombre}</td><td className="font-semibold">{fmt(c.saldoCUP)}<p className="equivalent">≈ {fmt(toUSD(c.saldoCUP, tasa))} USD</p></td><td>{fmt(c.saldoUSD)}<p className="equivalent">≈ {fmt(toCUP(c.saldoUSD, tasa))} CUP</p></td><td><button className="btn btn-ok btn-sm" onClick={() => setAbonoModal(c)}>💵 Abono</button> <button className="btn btn-ghost btn-sm" onClick={() => openEdit(c)}>✏️</button></td></tr>))}</tbody></table></div></div>)}
+      {conSaldo.length > 0 && (<div className="card p-4 mb-4"><h3 className="font-semibold mb-3">💳 Cuentas por Cobrar</h3><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Saldo CUP</th><th>Saldo USD</th><th></th></tr></thead><tbody>{conSaldo.map(c => (<tr key={c.id}><td className="font-medium">{c.nombre}</td><td>{fmt(c.saldoCUP)}<p className="equivalent">≈ {fmt(toUSD(c.saldoCUP, tasa))} USD</p></td><td>{fmt(c.saldoUSD)}<p className="equivalent">≈ {fmt(toCUP(c.saldoUSD, tasa))} CUP</p></td><td><button className="btn btn-ok btn-sm" onClick={() => setAbonoModal(c)}>💵 Abono</button> <button className="btn btn-ghost btn-sm" onClick={() => openEdit(c)}>✏️</button></td></tr>))}</tbody></table></div></div>)}
       <div className="card table-wrap"><table><thead><tr><th>Nombre</th><th>Teléfono</th><th>Saldo CUP</th><th>Saldo USD</th><th></th></tr></thead><tbody>{clientes.map(c => (<tr key={c.id}><td>{c.nombre}</td><td>{c.telefono}</td><td>{fmt(c.saldoCUP)}</td><td>{fmt(c.saldoUSD)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(c)}>✏️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(c)}>🗑️</button></td></tr>))}</tbody></table></div>
       <Modal open={modal} onClose={() => setModal(false)} title={editItem ? 'Editar' : 'Nuevo Cliente'}><div className="space-y-3"><div><label className="text-xs font-medium">Nombre *</label><input className="input" value={form.nombre || ''} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} /></div><div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-medium">Teléfono</label><input className="input" value={form.telefono || ''} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></div><div><label className="text-xs font-medium">Email</label><input className="input" value={form.email || ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div></div><div><label className="text-xs font-medium">Dirección</label><input className="input" value={form.direccion || ''} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} /></div><div><label className="text-xs font-medium">Notas</label><textarea className="input" rows={2} value={form.notas || ''} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></div></div><div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={save}>Guardar</button></div></Modal>
-      <Modal open={!!abonoModal} onClose={() => setAbonoModal(null)} title="💵 Abono">{abonoModal && (<div className="space-y-3"><p>Cliente: <strong>{abonoModal.nombre}</strong></p><p>Saldo: {fmt(abonoModal.saldoCUP)} CUP / {fmt(abonoModal.saldoUSD)} USD</p><div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-medium">Abono CUP</label><input type="number" className="input" value={abonoCUP} onChange={e => setAbonoCUP(+e.target.value)} /></div><div><label className="text-xs font-medium">Abono USD</label><input type="number" className="input" value={abonoUSD} onChange={e => setAbonoUSD(+e.target.value)} /></div></div></div>)}<div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setAbonoModal(null)}>Cancelar</button><button className="btn btn-ok" onClick={registrarAbono}>Registrar</button></div></Modal>
+      <Modal open={!!abonoModal} onClose={() => setAbonoModal(null)} title="💵 Abono">{abonoModal && (<div className="space-y-3"><p>Cliente: <strong>{abonoModal.nombre}</strong></p><p>Saldo: {fmt(abonoModal.saldoCUP)} CUP / {fmt(abonoModal.saldoUSD)} USD</p><div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-medium">Abono CUP</label><input type="number" className="input" value={numVal(abonoCUP)} onChange={e => setAbonoCUP(+e.target.value)} /></div><div><label className="text-xs font-medium">Abono USD</label><input type="number" className="input" value={numVal(abonoUSD)} onChange={e => setAbonoUSD(+e.target.value)} /></div></div></div>)}<div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setAbonoModal(null)}>Cancelar</button><button className="btn btn-ok" onClick={registrarAbono}>Registrar</button></div></Modal>
     </div>
   );
 }
 
-// ============ METRICS (WEEKLY) ============
+// ============ METRICS ============
 function Metrics({ cfg }: { cfg: Record<string, any> }) {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const tasa = cfg.tasa || 350;
-  const pctDependienta = cfg.pctDependienta || 0;
+  const pctDep = cfg.pctDependienta || 0;
 
   const load = useCallback(async () => { setVentas(await dbGetAll<Venta>('ventas')); setProductos(await dbGetAll<Producto>('productos')); setGastos(await dbGetAll<Gasto>('gastos')); }, []);
   useEffect(() => { load(); }, [load]);
 
-  // Solo semana actual
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  const weekStart = new Date(now); weekStart.setDate(now.getDate() + mondayOffset); weekStart.setHours(0, 0, 0, 0);
-  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 5); weekEnd.setHours(23, 59, 59, 999); // Sábado
-
-  const ventasSemana = ventas.filter(v => v.fecha >= weekStart.getTime() && v.fecha <= weekEnd.getTime() && v.estado === 'pagada');
-  const gastosSemana = gastos.filter(g => g.fecha >= weekStart.getTime() && g.fecha <= weekEnd.getTime());
+  const week = getWeekRange();
+  const ventasSemana = ventas.filter(v => v.fecha >= week.start && v.fecha <= week.end && v.estado === 'pagada');
+  const gastosSemana = gastos.filter(g => g.fecha >= week.start && g.fecha <= week.end);
 
   const totalCUP = ventasSemana.reduce((s, v) => s + v.totalCUP, 0);
   const totalUSD = ventasSemana.reduce((s, v) => s + v.totalUSD, 0);
@@ -910,26 +973,25 @@ function Metrics({ cfg }: { cfg: Record<string, any> }) {
   const utilidad = ganancia - gastosTotal;
   const inversion = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
 
-  const inv1 = utilidad * 0.5;
-  const inv2 = utilidad * 0.5;
-  const dependienta = inv1 * (pctDependienta / 100);
+  const accionista1 = utilidad * 0.5;
+  const accionista2 = utilidad * 0.5;
+  const dependienta = accionista2 * (pctDep / 100);
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-3"><div></div><HelpBtn text={HELP.metrics} /></div>
-      <div className="card p-4 mb-4" style={{ borderLeft: '4px solid var(--primary)' }}><p className="text-sm font-semibold">📅 Semana: {fmtDate(weekStart.getTime())} - {fmtDate(weekEnd.getTime())}</p></div>
+      <div className="card p-4 mb-4" style={{ borderLeft: '4px solid var(--primary)' }}><p className="text-sm font-semibold">📅 Semana: {week.startStr} - {week.endStr}</p></div>
       <div className="grid-4 mb-6">
-        <div className="kpi"><div className="kpi-label">Venta CUP</div><div className="kpi-value">{fmt(totalCUP)}</div><p className="equivalent">≈ {fmt(toUSD(totalCUP, tasa))} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Venta USD</div><div className="kpi-value">{fmt(totalUSD)}</div><p className="equivalent">≈ {fmt(toCUP(totalUSD, tasa))} CUP</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia</div><div className="kpi-value">{fmt(ganancia)}</div><p className="equivalent">≈ {fmt(toUSD(ganancia, tasa))} USD</p></div>
+        <div className="kpi"><div className="kpi-label">Venta CUP</div><div className="kpi-value">{fmt(totalCUP)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Venta USD</div><div className="kpi-value">{fmt(totalUSD)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia</div><div className="kpi-value">{fmt(ganancia)}</div></div>
         <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Inversión Inv.</div><div className="kpi-value">{fmt(inversion)}</div><p className="equivalent">≈ {fmt(toUSD(inversion, tasa))} USD</p></div>
       </div>
       <div className="grid-3 mb-6">
-        <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">Utilidad Neta</div><div className="kpi-value">{fmt(utilidad)}</div><p className="equivalent">Ganancia - Gastos ({fmt(gastosTotal)})</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--primary)' }}><div className="kpi-label">Inv. 1 (50%)</div><div className="kpi-value">{fmt(inv1)}</div>{pctDependienta > 0 && <p className="text-xs">Dep: -{fmt(dependienta)} | Neto: {fmt(inv1 - dependienta)}</p>}</div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">Inv. 2 (50%)</div><div className="kpi-value">{fmt(inv2)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">Ganancia Neta</div><div className="kpi-value">{fmt(utilidad)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--primary)' }}><div className="kpi-label">{cfg.accionista1Nombre || 'Accionista 1'} (50%)</div><div className="kpi-value">{fmt(accionista1)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">{cfg.accionista2Nombre || 'Accionista 2'} (50%)</div><div className="kpi-value">{fmt(accionista2)}</div>{pctDep > 0 && <p className="text-xs">Dep: -{fmt(dependienta)} | Neto: {fmt(accionista2 - dependienta)}</p>}</div>
       </div>
-      {pctDependienta > 0 && (<div className="kpi mb-6" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💁 Dependienta ({pctDependienta}% del Inv1)</div><div className="kpi-value">{fmt(dependienta)} CUP</div><p className="equivalent">≈ {fmt(toUSD(dependienta, tasa))} USD</p></div>)}
+      {pctDep > 0 && (<div className="kpi mb-6" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💁 {cfg.dependientaNombre || 'Dependienta'} ({pctDep}% del Acc. 2)</div><div className="kpi-value">{fmt(dependienta)} CUP</div></div>)}
     </div>
   );
 }
@@ -965,7 +1027,6 @@ function Expenses({ cfg }: { cfg: Record<string, any> }) {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-3"><div></div><HelpBtn text={HELP.expenses} /></div>
       <div className="grid-3 mb-4"><div className="kpi"><div className="kpi-label">Mes CUP</div><div className="kpi-value">{fmt(gastosMes.reduce((s, g) => s + g.montoCUP, 0))}</div></div><div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">Mes USD</div><div className="kpi-value">{fmt(gastosMes.reduce((s, g) => s + g.montoUSD, 0))}</div></div><div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Total</div><div className="kpi-value">{fmt(gastos.reduce((s, g) => s + g.montoCUP, 0))}</div></div></div>
       <div className="flex justify-end mb-4"><button className="btn btn-primary" onClick={openNew}>+ Nuevo Gasto</button></div>
       <div className="card table-wrap"><table><thead><tr><th>Fecha</th><th>Concepto</th><th>Cat.</th><th>CUP</th><th>USD</th><th></th></tr></thead><tbody>{[...gastos].sort((a, b) => b.fecha - a.fecha).map(g => (<tr key={g.id}><td className="text-xs">{fmtDate(g.fecha)}</td><td>{g.concepto}</td><td>{g.categoria}</td><td>{fmt(g.montoCUP)}</td><td>{fmt(g.montoUSD)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(g)}>✏️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(g)}>🗑️</button></td></tr>))}</tbody></table></div>
@@ -979,26 +1040,26 @@ function Backup({ cfg }: { cfg: Record<string, any> }) {
   const [importing, setImporting] = useState(false);
 
   const exportJSON = async () => {
-    const data = { productos: await dbGetAll('productos'), compras: await dbGetAll('compras'), ventas: await dbGetAll('ventas'), clientes: await dbGetAll('clientes'), gastos: await dbGetAll('gastos'), anulaciones: await dbGetAll('anulaciones'), config: await dbGetAll('config'), tasas: await dbGetAll('tasas'), exportDate: Date.now() };
+    const data = { productos: await dbGetAll('productos'), lotes: await dbGetAll('lotes'), compras: await dbGetAll('compras'), ventas: await dbGetAll('ventas'), clientes: await dbGetAll('clientes'), gastos: await dbGetAll('gastos'), anulaciones: await dbGetAll('anulaciones'), config: await dbGetAll('config'), tasas: await dbGetAll('tasas'), cierres: await dbGetAll('cierres'), exportDate: Date.now() };
     const encrypted = await encryptData(JSON.stringify(data));
     const blob = new Blob([encrypted], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ferreteria_${new Date().toISOString().split('T')[0]}.json`; a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ferreteria_suarez_${new Date().toISOString().split('T')[0]}.json`; a.click();
     showToast('Respaldo exportado', 'ok');
   };
 
   const exportExcel = async () => {
     const wb = XLSX.utils.book_new();
     const productos = await dbGetAll<any>('productos');
-    if (productos.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(productos.map(p => ({ ID: p.id, Código: p.codigo, Nombre: p.nombre, Categoría: p.categoria, 'Compra CUP': p.compraCUP, 'Compra USD': p.compraUSD, 'Venta CUP': p.ventaCUP, 'Venta USD': p.ventaUSD, 'PEP CUP': p.pep, 'PEP USD': p.pepUSD, Stock: p.stock, Mín: p.min, Inversión: p.stock * p.pep }))), 'Productos'); }
+    if (productos.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(productos.map(p => ({ ID: p.id, Código: p.codigo, Nombre: p.nombre, Categoría: p.categoria, 'Compra CUP': p.compraCUP, 'Compra USD': p.compraUSD, 'Venta CUP': p.ventaCUP, 'Venta USD': p.ventaUSD, 'PEP CUP': p.pep, 'PEP USD': p.pepUSD, Stock: p.stock, Mín: p.min, 'Inversión CUP': p.stock * p.pep, 'Inversión USD': toUSD(p.stock * p.pep, cfg.tasa || 350) }))), 'Productos'); }
     const ventas = await dbGetAll<any>('ventas');
-    if (ventas.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ventas.map(v => ({ Número: v.num, Fecha: fmtDateTime(v.fecha), Cliente: v.clienteNombre, Estado: v.estado, 'Total CUP': v.totalCUP, 'Total USD': v.totalUSD, 'Efectivo CUP': v.pagos.efCUP, 'Tarjeta CUP': v.pagos.tfCUP, 'Crédito CUP': v.pagos.crCUP, 'Efectivo USD': v.pagos.efUSD, 'Tarjeta USD': v.pagos.tfUSD, 'Crédito USD': v.pagos.crUSD }))), 'Ventas'); }
-    const compras = await dbGetAll<any>('compras');
-    if (compras.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(compras.map(c => ({ Fecha: fmtDate(c.fecha), Producto: c.productoNombre, Cantidad: c.cantidad, 'P.Unit CUP': c.precioUnitCUP, 'P.Unit USD': c.precioUnitUSD, 'Total CUP': c.totalCUP, 'Total USD': c.totalUSD }))), 'Compras'); }
+    if (ventas.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ventas.map(v => ({ Número: v.num, Fecha: fmtDateTime(v.fecha), Cliente: v.clienteNombre, Estado: v.estado, 'Total CUP': v.totalCUP, 'Total USD': v.totalUSD }))), 'Ventas'); }
     const clientes = await dbGetAll<any>('clientes');
     if (clientes.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientes.map(c => ({ Nombre: c.nombre, Teléfono: c.telefono, 'Saldo CUP': c.saldoCUP, 'Saldo USD': c.saldoUSD, Compras: c.compras }))), 'Clientes'); }
     const gastos = await dbGetAll<any>('gastos');
     if (gastos.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastos.map(g => ({ Fecha: fmtDate(g.fecha), Concepto: g.concepto, Categoría: g.categoria, 'Monto CUP': g.montoCUP, 'Monto USD': g.montoUSD }))), 'Gastos'); }
-    XLSX.writeFile(wb, `ferreteria_${new Date().toISOString().split('T')[0]}.xlsx`);
+    const cierres = await dbGetAll<any>('cierres');
+    if (cierres.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cierres.map(c => ({ Semana: `${fmtDate(c.semanaInicio)} - ${fmtDate(c.semanaFin)}`, Ventas: c.ventasIds.length, 'Ganancia Bruta': c.gananciaBrutaCUP, Gastos: c.totalGastosCUP, 'Ganancia Neta': c.gananciaNetaCUP, Inversión: c.inversionInventarioCUP, Accionista1: c.accionista1, Accionista2: c.accionista2, Dependienta: c.dependienta }))), 'Cierres'); }
+    XLSX.writeFile(wb, `ferreteria_suarez_${new Date().toISOString().split('T')[0]}.xlsx`);
     showToast('Excel exportado', 'ok');
   };
 
@@ -1006,15 +1067,14 @@ function Backup({ cfg }: { cfg: Record<string, any> }) {
     const file = e.target.files?.[0]; if (!file) return;
     if (!confirm('¿Restaurar? Se reemplazarán TODOS los datos.')) return;
     setImporting(true);
-    try { const text = await file.text(); let json: string; try { json = await decryptData(text); } catch { json = text; } const data = JSON.parse(json); for (const store of ['productos', 'compras', 'ventas', 'clientes', 'gastos', 'anulaciones', 'config', 'tasas']) { if (data[store]) { await dbClear(store); for (const item of data[store]) await dbPut(store, item); } } showToast('Restaurado', 'ok'); } catch (err) { showToast('Error: ' + (err as Error).message, 'err'); }
+    try { const text = await file.text(); let json: string; try { json = await decryptData(text); } catch { json = text; } const data = JSON.parse(json); for (const store of ['productos', 'lotes', 'compras', 'ventas', 'clientes', 'gastos', 'anulaciones', 'config', 'tasas', 'cierres']) { if (data[store]) { await dbClear(store); for (const item of data[store]) await dbPut(store, item); } } showToast('Restaurado', 'ok'); } catch (err) { showToast('Error: ' + (err as Error).message, 'err'); }
     setImporting(false); e.target.value = '';
   };
 
-  const clearAll = async () => { if (!confirm('⚠️ ¿Borrar TODO?')) return; if (!confirm('¿Seguro?')) return; for (const s of ['productos', 'compras', 'ventas', 'clientes', 'gastos', 'anulaciones', 'tasas']) await dbClear(s); showToast('Eliminado', 'warn'); };
+  const clearAll = async () => { if (!confirm('⚠️ ¿Borrar TODO?')) return; if (!confirm('¿Seguro?')) return; for (const s of ['productos', 'lotes', 'compras', 'ventas', 'clientes', 'gastos', 'anulaciones', 'tasas', 'cierres']) await dbClear(s); showToast('Eliminado', 'warn'); };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end"><HelpBtn text={HELP.backup} /></div>
       <div className="card p-6"><h3 className="font-bold text-lg mb-4">📤 Exportar</h3><div className="flex flex-wrap gap-3"><button className="btn btn-primary" onClick={exportJSON}>📦 JSON Cifrado</button><button className="btn btn-ok" onClick={exportExcel}>📊 Excel Completo</button></div></div>
       <div className="card p-6"><h3 className="font-bold text-lg mb-4">📥 Importar</h3><label className="btn btn-info cursor-pointer">📦 Restaurar JSON {importing && '...'}<input type="file" accept=".json" className="hidden" onChange={importJSON} disabled={importing} /></label></div>
       <div className="card p-6" style={{ borderColor: 'var(--err)' }}><h3 className="font-bold text-lg mb-4" style={{ color: 'var(--err)' }}>⚠️ Zona Peligrosa</h3><button className="btn btn-err" onClick={clearAll}>🗑️ Borrar Todo</button></div>
@@ -1025,39 +1085,79 @@ function Backup({ cfg }: { cfg: Record<string, any> }) {
 // ============ SETTINGS ============
 function Settings({ cfg, refreshCfg }: { cfg: Record<string, any>; refreshCfg: () => void }) {
   const [tasa, setTasa] = useState(cfg.tasa || 350);
-  const [biz, setBiz] = useState(cfg.biz || '');
+  const [biz, setBiz] = useState(cfg.biz || 'Ferretería Suárez');
   const [addr, setAddr] = useState(cfg.addr || '');
   const [phone, setPhone] = useState(cfg.phone || '');
   const [nit, setNit] = useState(cfg.nit || '');
   const [tema, setTema] = useState(cfg.tema || 'auto');
   const [size, setSize] = useState(cfg.size || 'md');
-  const [units, setUnits] = useState<string[]>(cfg.units || []);
-  const [cats, setCats] = useState<string[]>(cfg.cats || []);
+  const [units, setUnits] = useState<string[]>(cfg.unidades || []);
+  const [cats, setCats] = useState<string[]>(cfg.categorias || []);
   const [newUnit, setNewUnit] = useState('');
   const [newCat, setNewCat] = useState('');
   const [pctDep, setPctDep] = useState(cfg.pctDependienta || 0);
+  const [acc1Name, setAcc1Name] = useState(cfg.accionista1Nombre || 'Accionista 1');
+  const [acc2Name, setAcc2Name] = useState(cfg.accionista2Nombre || 'Accionista 2');
+  const [depName, setDepName] = useState(cfg.dependientaNombre || 'Dependienta');
+  const [actualizarPrecios, setActualizarPrecios] = useState(cfg.actualizarPreciosConTasa || false);
+  const [mostrarEquiv, setMostrarEquiv] = useState(cfg.mostrarEquivalentes !== false);
   const [showTasas, setShowTasas] = useState(false);
   const [tasas, setTasas] = useState<Tasa[]>([]);
 
   useEffect(() => { (async () => { setTasas(await dbGetAll<Tasa>('tasas')); })(); }, []);
 
-  const saveTasa = async () => { const ant = cfg.tasa || 350; await setConfig('tasa', tasa); await dbAdd('tasas', { fecha: Date.now(), anterior: ant, nueva: tasa }); setTasas(await dbGetAll<Tasa>('tasas')); await refreshCfg(); showToast(`Tasa: ${ant} → ${tasa}`, 'ok'); };
+  const saveTasa = async () => {
+    const ant = cfg.tasa || 350;
+    await setConfig('tasa', tasa);
+    await dbAdd('tasas', { fecha: Date.now(), anterior: ant, nueva: tasa });
+    
+    // Si está activado, actualizar precios CUP de productos no fijos
+    if (actualizarPrecios && ant !== tasa) {
+      const productos = await dbGetAll<Producto>('productos');
+      for (const p of productos) {
+        if (!p.precioFijoCUP && p.ventaUSD > 0) {
+          await dbPut('productos', { ...p, ventaCUP: toCUP(p.ventaUSD, tasa) });
+        }
+      }
+      showToast('Precios actualizados según nueva tasa', 'ok');
+    }
+    
+    setTasas(await dbGetAll<Tasa>('tasas'));
+    await refreshCfg();
+    showToast(`Tasa: ${ant} → ${tasa}`, 'ok');
+  };
+
   const saveBiz = async () => { await setConfig('biz', biz); await setConfig('addr', addr); await setConfig('phone', phone); await setConfig('nit', nit); await refreshCfg(); showToast('Guardado', 'ok'); };
-  const saveDep = async () => { await setConfig('pctDependienta', pctDep); await refreshCfg(); showToast('Guardado', 'ok'); };
+  const saveDep = async () => { await setConfig('pctDependienta', pctDep); await setConfig('accionista1Nombre', acc1Name); await setConfig('accionista2Nombre', acc2Name); await setConfig('dependientaNombre', depName); await refreshCfg(); showToast('Guardado', 'ok'); };
+  const saveOptions = async () => { await setConfig('actualizarPreciosConTasa', actualizarPrecios); await setConfig('mostrarEquivalentes', mostrarEquiv); await refreshCfg(); showToast('Guardado', 'ok'); };
 
   const lic = getLicense();
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end"><HelpBtn text={HELP.settings} /></div>
+      <div className="card p-6"><h3 className="font-bold text-lg mb-4">💱 Tasa de Cambio</h3><div className="flex gap-3 items-end"><div className="flex-1"><label className="text-xs font-medium">1 USD = ? CUP</label><input type="number" className="input" value={tasa} onChange={e => setTasa(+e.target.value)} /></div><button className="btn btn-primary" onClick={saveTasa}>Guardar</button><button className="btn btn-ghost" onClick={() => setShowTasas(true)}>📋 Historial</button></div></div>
 
-      <div className="card p-6"><h3 className="font-bold text-lg mb-4">💱 Tasa de Cambio</h3><div className="flex gap-3 items-end"><div className="flex-1"><label className="text-xs font-medium">1 USD = ? CUP</label><input type="number" className="input" value={tasa} onChange={e => setTasa(+e.target.value)} /></div><button className="btn btn-primary" onClick={saveTasa}>Guardar</button><button className="btn btn-ghost" onClick={() => setShowTasas(true)}>📋 Historial</button></div><p className="text-xs mt-2" style={{ color: 'var(--warn)' }}>⚠️ La tasa afecta todas las conversiones USD↔CUP. Actualice frecuentemente por la volatilidad.</p></div>
+      <div className="card p-6"><h3 className="font-bold text-lg mb-4">👥 Accionistas y Dependienta</h3><div className="space-y-3">
+        <div><label className="text-xs font-medium">Nombre Accionista 1</label><input className="input" value={acc1Name} onChange={e => setAcc1Name(e.target.value)} /></div>
+        <div><label className="text-xs font-medium">Nombre Accionista 2</label><input className="input" value={acc2Name} onChange={e => setAcc2Name(e.target.value)} /></div>
+        <div><label className="text-xs font-medium">Nombre Dependienta</label><input className="input" value={depName} onChange={e => setDepName(e.target.value)} /></div>
+        <div><label className="text-xs font-medium">% Dependienta (del Accionista 2)</label><input type="number" className="input" value={pctDep} onChange={e => setPctDep(+e.target.value)} min={0} max={100} /></div>
+        <button className="btn btn-primary" onClick={saveDep}>Guardar</button>
+      </div></div>
 
-      <div className="card p-6"><h3 className="font-bold text-lg mb-4">👥 Inversionistas y Dependienta</h3><div className="space-y-3"><p className="text-sm" style={{ color: 'var(--text2)' }}>La ganancia se divide 50% cada inversionista. La dependienta recibe un % de la parte del Inversionista 1.</p><div className="flex gap-3 items-end"><div className="flex-1"><label className="text-xs font-medium">% Dependienta (del Inv1)</label><input type="number" className="input" value={pctDep} onChange={e => setPctDep(+e.target.value)} min={0} max={100} /></div><button className="btn btn-primary" onClick={saveDep}>Guardar</button></div><p className="text-xs" style={{ color: 'var(--text2)' }}>Ejemplo: Si ganancia = 1000, Inv1 = 500, Inv2 = 500. Si dependienta = 10%, recibe 50 del Inv1.</p></div></div>
+      <div className="card p-6"><h3 className="font-bold text-lg mb-4">⚙️ Opciones de Comportamiento</h3><div className="space-y-3">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={actualizarPrecios} onChange={e => setActualizarPrecios(e.target.checked)} /> Al cambiar la tasa, actualizar automáticamente precios CUP (excepto productos con precio fijo)</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarEquiv} onChange={e => setMostrarEquiv(e.target.checked)} /> Mostrar equivalentes en la otra moneda</label>
+        <button className="btn btn-primary" onClick={saveOptions}>Guardar</button>
+      </div></div>
 
       <div className="card p-6"><h3 className="font-bold text-lg mb-4">🏪 Negocio</h3><div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-medium">Nombre</label><input className="input" value={biz} onChange={e => setBiz(e.target.value)} /></div><div><label className="text-xs font-medium">Dirección</label><input className="input" value={addr} onChange={e => setAddr(e.target.value)} /></div><div><label className="text-xs font-medium">Teléfono</label><input className="input" value={phone} onChange={e => setPhone(e.target.value)} /></div><div><label className="text-xs font-medium">NIT</label><input className="input" value={nit} onChange={e => setNit(e.target.value)} /></div></div><button className="btn btn-primary mt-3" onClick={saveBiz}>Guardar</button></div>
 
       <div className="card p-6"><h3 className="font-bold text-lg mb-4">🎨 Apariencia</h3><div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-medium">Tema</label><select className="input" value={tema} onChange={e => { setTema(e.target.value); setConfig('tema', e.target.value); refreshCfg(); }}><option value="light">Claro</option><option value="dark">Oscuro</option><option value="auto">Auto</option></select></div><div><label className="text-xs font-medium">Tamaño</label><select className="input" value={size} onChange={e => { setSize(e.target.value); setConfig('size', e.target.value); refreshCfg(); }}><option value="sm">Compacto</option><option value="md">Normal</option><option value="lg">Grande</option></select></div></div></div>
+
+      <div className="card p-6"><h3 className="font-bold text-lg mb-4">📏 Unidades</h3><div className="flex flex-wrap gap-2 mb-3">{units.map(u => <span key={u} className="badge badge-info flex items-center gap-1">{u} <button onClick={async () => { const upd = units.filter(x => x !== u); await setConfig('unidades', upd); setUnits(upd); refreshCfg(); }} className="text-red-500">✕</button></span>)}</div><div className="flex gap-2"><input className="input max-w-[200px]" placeholder="Nueva..." value={newUnit} onChange={e => setNewUnit(e.target.value)} /><button className="btn btn-primary btn-sm" onClick={async () => { if (!newUnit.trim()) return; const upd = [...units, newUnit.trim()]; await setConfig('unidades', upd); setUnits(upd); setNewUnit(''); refreshCfg(); }}>Agregar</button></div></div>
+
+      <div className="card p-6"><h3 className="font-bold text-lg mb-4">📁 Categorías</h3><div className="flex flex-wrap gap-2 mb-3">{cats.map(c => <span key={c} className="badge badge-ok flex items-center gap-1">{c} <button onClick={async () => { const upd = cats.filter(x => x !== c); await setConfig('categorias', upd); setCats(upd); refreshCfg(); }} className="text-red-500">✕</button></span>)}</div><div className="flex gap-2"><input className="input max-w-[200px]" placeholder="Nueva..." value={newCat} onChange={e => setNewCat(e.target.value)} /><button className="btn btn-primary btn-sm" onClick={async () => { if (!newCat.trim()) return; const upd = [...cats, newCat.trim()]; await setConfig('categorias', upd); setCats(upd); setNewCat(''); refreshCfg(); }}>Agregar</button></div></div>
 
       <div className="card p-6"><h3 className="font-bold text-lg mb-4">🔑 Licencia</h3>{lic ? (<div className="space-y-2"><p>Plan: {lic.plan}</p><p>Estado: {isLicenseValid() ? <span className="badge badge-ok">Activa</span> : <span className="badge badge-err">Expirada</span>}</p>{lic.days > 0 && <p>Expira: {fmtDate(lic.expires)}</p>}<button className="btn btn-err btn-sm mt-2" onClick={() => { clearLicense(); window.location.reload(); }}>Cerrar Licencia</button></div>) : <p>Sin licencia</p>}</div>
 

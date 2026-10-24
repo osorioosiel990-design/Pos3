@@ -1,31 +1,51 @@
-// IndexedDB + Crypto + Storage utilities for FerreteríaPRO
+// IndexedDB + Crypto + Storage utilities for Ferretería Suárez
 
-const DB_NAME = 'ferreteriapro';
-const DB_VERSION = 1;
+const DB_NAME = 'ferreteriasuarez';
+const DB_VERSION = 2;
 
 export interface Producto {
   id?: number; nombre: string; codigo: string; categoria: string; unidad: string;
   compraCUP: number; compraUSD: number; ventaCUP: number; ventaUSD: number;
   pep: number; pepUSD: number; stock: number; min: number; foto: string; creado: number;
+  precioFijoCUP?: boolean;
+  precioFijoUSD?: boolean;
+  loteActual?: number;
+}
+
+export interface Lote {
+  id?: number;
+  productoId: number;
+  cantidad: number;
+  precioCompraCUP: number;
+  precioCompraUSD: number;
+  fecha: number;
+  proveedor: string;
+  nota: string;
+  stockRestante: number;
 }
 
 export interface Compra {
   id?: number; productoId: number; productoNombre: string; productoCodigo: string;
   cantidad: number; unidad: string; precioUnitCUP: number; precioUnitUSD: number;
   totalCUP: number; totalUSD: number; nota: string; fecha: number; creado: number;
+  loteId?: number; proveedor?: string;
 }
 
 export interface VentaItem {
   productoId: number; nombre: string; codigo: string; cantidad: number; unidad: string;
   precioCUP: number; precioUSD: number; subtotalCUP: number; subtotalUSD: number;
-  pep: number; pepUSD: number;
+  pep: number; pepUSD: number; loteId?: number;
 }
 
 export interface Venta {
   id?: number; num: string; fecha: number; items: VentaItem[]; descuento: number;
-  totalCUP: number; totalUSD: number; pagos: { efCUP: number; tfCUP: number; crCUP: number; efUSD: number; tfUSD: number; crUSD: number };
+  totalCUP: number; totalUSD: number;
+  pagos: {
+    efCUP: number; tfCUP: number; pagarCUP: number;
+    efUSD: number; tfUSD: number; pagarUSD: number;
+  };
   clienteId: number | null; clienteNombre: string; estado: 'pagada' | 'anulada';
-  creditoCUP: number; creditoUSD: number;
+  pagarMasTardeCUP: number; pagarMasTardeUSD: number;
 }
 
 export interface Cliente {
@@ -46,14 +66,51 @@ export interface Anulacion {
 
 export interface Tasa { id?: number; fecha: number; anterior: number; nueva: number; }
 
+export interface CierreSemanal {
+  id?: number;
+  semanaInicio: number;
+  semanaFin: number;
+  ventasIds: number[];
+  totalVentasCUP: number;
+  totalVentasUSD: number;
+  gananciaBrutaCUP: number;
+  gananciaBrutaUSD: number;
+  totalGastosCUP: number;
+  totalGastosUSD: number;
+  gananciaNetaCUP: number;
+  gananciaNetaUSD: number;
+  inversionInventarioCUP: number;
+  inversionInventarioUSD: number;
+  accionista1: number;
+  accionista2: number;
+  dependienta: number;
+  accionista2Neto: number;
+  cajaCUP: number;
+  cajaUSD: number;
+  tasaUsada: number;
+  creado: number;
+}
+
 export interface Config { key: string; value: any; }
 
 const DEFAULT_CONFIG: Record<string, any> = {
   tasa: 350, tema: 'auto', size: 'md',
-  biz: 'FerreteríaPRO', addr: '', phone: '', nit: '',
+  biz: 'Ferretería Suárez', addr: '', phone: '', nit: '',
   pctDependienta: 0,
+  accionista1Nombre: 'Accionista 1',
+  accionista2Nombre: 'Accionista 2',
+  dependientaNombre: 'Dependienta',
+  actualizarPreciosConTasa: false,
+  usarLotes: true,
+  metodoFifo: true,
+  monedaPrincipal: 'CUP',
+  mostrarEquivalentes: true,
+  permitirPreciosNegociables: false,
+  redondeo: 0,
+  unidades: ['Unidad','Caja','Metro','Kilo','Litro','Paquete','Rollos','Juego'],
+  categorias: ['Herramientas','Tornillería','Plomería','Electricidad','Pintura','Construcción','Jardín','Otros'],
   units: ['Unidad','Caja','Metro','Kilo','Litro','Paquete','Rollos','Juego'],
-  cats: ['Herramientas','Tornillería','Plomería','Electricidad','Pintura','Construcción','Jardín','Otros']
+  cats: ['Herramientas','Tornillería','Plomería','Electricidad','Pintura','Construcción','Jardín','Otros'],
 };
 
 let db: IDBDatabase | null = null;
@@ -65,6 +122,7 @@ export async function openDB(): Promise<IDBDatabase> {
     req.onupgradeneeded = () => {
       const d = req.result;
       if (!d.objectStoreNames.contains('productos')) d.createObjectStore('productos', { keyPath: 'id', autoIncrement: true });
+      if (!d.objectStoreNames.contains('lotes')) d.createObjectStore('lotes', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('compras')) d.createObjectStore('compras', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('ventas')) d.createObjectStore('ventas', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('clientes')) d.createObjectStore('clientes', { keyPath: 'id', autoIncrement: true });
@@ -72,6 +130,7 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!d.objectStoreNames.contains('anulaciones')) d.createObjectStore('anulaciones', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('config')) d.createObjectStore('config', { keyPath: 'key' });
       if (!d.objectStoreNames.contains('tasas')) d.createObjectStore('tasas', { keyPath: 'id', autoIncrement: true });
+      if (!d.objectStoreNames.contains('cierres')) d.createObjectStore('cierres', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('logs')) d.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
     };
     req.onsuccess = () => { db = req.result; resolve(db); };
@@ -143,6 +202,8 @@ export async function getConfig(): Promise<Record<string, any>> {
   const items = await dbGetAll<Config>('config');
   const cfg: Record<string, any> = { ...DEFAULT_CONFIG };
   items.forEach(i => { cfg[i.key] = i.value; });
+  if (!cfg.unidades && cfg.units) cfg.unidades = cfg.units;
+  if (!cfg.categorias && cfg.cats) cfg.categorias = cfg.cats;
   return cfg;
 }
 
@@ -176,30 +237,31 @@ export async function deriveKey(): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(MASTER_KEY), 'PBKDF2', false, ['deriveKey']);
   cryptoKey = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: encoder.encode('ferreteriapro_salt_v2'), iterations: 100000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: encoder.encode('ferreteriasuarez_salt_v3'), iterations: 100000, hash: 'SHA-256' },
     keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
   );
   return cryptoKey;
 }
 
-export async function encryptData(data: string): Promise<string> {
+export const encryptData = async (dataToEncrypt: string): Promise<string> => {
   const key = await deriveKey();
   const encoder = new TextEncoder();
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(data));
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(dataToEncrypt));
   const combined = new Uint8Array(iv.length + new Uint8Array(encrypted).length);
-  combined.set(iv); combined.set(new Uint8Array(encrypted), iv.length);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
   return btoa(String.fromCharCode(...combined));
-}
+};
 
-export async function decryptData(b64: string): Promise<string> {
+export const decryptData = async (b64: string): Promise<string> => {
   const key = await deriveKey();
   const combined = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
   const iv = combined.slice(0, 12);
   const data = combined.slice(12);
   const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
   return new TextDecoder().decode(decrypted);
-}
+};
 
 export function verifyMasterKey(input: string): boolean { return input === MASTER_KEY; }
 
@@ -219,3 +281,20 @@ export function fmt(n: number, dec = 2): string { return n.toLocaleString('es-CU
 export function fmtDate(ts: number): string { return new Date(ts).toLocaleDateString('es-CU'); }
 export function fmtDateTime(ts: number): string { return new Date(ts).toLocaleString('es-CU'); }
 export function genVentaNum(): string { return 'V-' + Date.now().toString(36).toUpperCase(); }
+
+export const toUSD = (cup: number, tasa: number) => tasa > 0 ? cup / tasa : 0;
+export const toCUP = (usd: number, tasa: number) => usd * tasa;
+export const numVal = (v: number | undefined | null) => v === undefined || v === null ? '' : v;
+
+export function getWeekRange(date: Date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const start = new Date(d);
+  start.setDate(d.getDate() + mondayOffset);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 5);
+  end.setHours(23, 59, 59, 999);
+  return { start: start.getTime(), end: end.getTime(), startStr: fmtDate(start.getTime()), endStr: fmtDate(end.getTime()) };
+}
