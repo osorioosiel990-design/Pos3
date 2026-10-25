@@ -114,7 +114,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen">
-      {!kiosco && (<aside className="sidebar"><div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}><h1 className="font-bold text-lg" style={{ color: 'var(--primary)' }}>🔧 Ferretería Suárez</h1></div><nav className="flex-1 py-2 overflow-y-auto">{navItems.map(n => (<div key={n.id} className={`sidebar-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}><span>{n.icon}</span><span>{n.label}</span></div>))}</nav><div className="p-3 border-t" style={{ borderColor: 'var(--border)' }}><button className="btn btn-ghost btn-sm w-full justify-center" onClick={() => setKiosco(true)}>⛶ Kiosco</button></div></aside>)}
+      {!kiosco && (<aside className="sidebar"><div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}><h1 className="font-bold text-base" style={{ color: 'var(--primary)' }}>🔧 Ferretería S.</h1></div><nav className="flex-1 py-2 overflow-y-auto">{navItems.map(n => (<div key={n.id} className={`sidebar-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}><span>{n.icon}</span><span>{n.label}</span></div>))}</nav><div className="p-3 border-t" style={{ borderColor: 'var(--border)' }}><button className="btn btn-ghost btn-sm w-full justify-center" onClick={() => setKiosco(true)}>⛶ Kiosco</button></div></aside>)}
       <main className="flex-1 overflow-auto">
         {!kiosco && (<header className="flex items-center justify-between px-6 py-3 border-b" style={{ borderColor: 'var(--border)', background: 'var(--bg2)' }}><h2 className="font-semibold text-lg">{navItems.find(n => n.id === page)?.icon} {navItems.find(n => n.id === page)?.label}</h2><span className="text-xs" style={{ color: 'var(--text2)' }}>1 USD = {fmt(cfg.tasa || 350)} CUP</span></header>)}
         <div className="p-4 md:p-6">
@@ -161,7 +161,10 @@ function Dashboard({ cfg, setPage }: { cfg: Record<string, any>; setPage: (p: Pa
   const cajaUSD = ventasHoy.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
   const totalHoyCUP = ventasHoy.reduce((s, v) => s + v.totalCUP, 0);
   const totalHoyUSD = ventasHoy.reduce((s, v) => s + v.totalUSD, 0);
-  const gananciaHoy = ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => si + (it.precioCUP - it.pep) * it.cantidad * (1 - v.descuento / 100), 0), 0);
+  const gananciaHoy = ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => {
+    const precioConDescuento = it.precioCUP * (1 - v.descuento / 100);
+    return si + (precioConDescuento - it.pep) * it.cantidad;
+  }, 0), 0);
   
   const inversionCUP = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
   const inversionUSD = toUSD(inversionCUP, tasa);
@@ -399,8 +402,19 @@ function Purchases({ cfg }: { cfg: Record<string, any> }) {
     if (form.cantidad <= 0) { showToast('Cantidad > 0', 'err'); return; }
     if (form.precioUnitCUP <= 0 && form.precioUnitUSD <= 0) { showToast('Precio > 0', 'err'); return; }
     
-    const newPep = (producto.stock * producto.pep + form.cantidad * form.precioUnitCUP) / (producto.stock + form.cantidad);
-    const newPepUSD = (producto.stock * producto.pepUSD + form.cantidad * form.precioUnitUSD) / (producto.stock + form.cantidad);
+    // Calcular nuevo PEP ponderado
+    let newPep = producto.pep;
+    let newPepUSD = producto.pepUSD;
+    
+    if (producto.stock > 0) {
+      // Si hay stock, calcular PEP ponderado
+      newPep = (producto.stock * producto.pep + form.cantidad * form.precioUnitCUP) / (producto.stock + form.cantidad);
+      newPepUSD = (producto.stock * producto.pepUSD + form.cantidad * form.precioUnitUSD) / (producto.stock + form.cantidad);
+    } else {
+      // Si no hay stock, usar el precio de compra como nuevo PEP
+      newPep = form.precioUnitCUP;
+      newPepUSD = form.precioUnitUSD;
+    }
     
     await dbAdd('compras', { productoId: producto.id!, productoNombre: producto.nombre, productoCodigo: producto.codigo, cantidad: form.cantidad, unidad: producto.unidad, precioUnitCUP: form.precioUnitCUP, precioUnitUSD: form.precioUnitUSD, totalCUP: form.cantidad * form.precioUnitCUP, totalUSD: form.cantidad * form.precioUnitUSD, nota: form.nota, proveedor: form.proveedor, fecha: Date.now(), creado: Date.now() });
     await dbPut('productos', { ...producto, stock: producto.stock + form.cantidad, pep: isNaN(newPep) ? form.precioUnitCUP : newPep, pepUSD: isNaN(newPepUSD) ? form.precioUnitUSD : newPepUSD });
@@ -478,12 +492,14 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
   // Calcular pagos automáticos según método
   useEffect(() => {
     if (!cobrarModal) return;
+    // Solo resetear pagos si NO es "dividido" (para no perder la configuración manual del usuario)
+    if (metodoPago === 'dividido') return;
+    
     const newPagos = { efCUP: 0, tfCUP: 0, pagarCUP: 0, efUSD: 0, tfUSD: 0, pagarUSD: 0 };
     if (moneda === 'CUP') {
       if (metodoPago === 'efectivo') newPagos.efCUP = totalCUP;
       else if (metodoPago === 'transferencia') newPagos.tfCUP = totalCUP;
       else if (metodoPago === 'pagarTarde') newPagos.pagarCUP = totalCUP;
-      // dividido: se deja en 0 para que el usuario lo configure
     } else {
       if (metodoPago === 'efectivo') newPagos.efUSD = totalUSD;
       else if (metodoPago === 'transferencia') newPagos.tfUSD = totalUSD;
@@ -494,6 +510,20 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
 
   const confirmarVenta = async () => {
     if (cart.length === 0) { showToast('Carrito vacío', 'err'); return; }
+    
+    // Validar que los pagos sumen el total
+    const sumaPagosCUP = pagos.efCUP + pagos.tfCUP + pagos.pagarCUP;
+    const sumaPagosUSD = pagos.efUSD + pagos.tfUSD + pagos.pagarUSD;
+    
+    if (moneda === 'CUP' && totalCUP > 0 && Math.abs(sumaPagosCUP - totalCUP) > 0.01) {
+      showToast(`Los pagos en CUP (${fmt(sumaPagosCUP)}) no suman el total (${fmt(totalCUP)})`, 'err');
+      return;
+    }
+    if (moneda === 'USD' && totalUSD > 0 && Math.abs(sumaPagosUSD - totalUSD) > 0.01) {
+      showToast(`Los pagos en USD (${fmt(sumaPagosUSD)}) no suman el total (${fmt(totalUSD)})`, 'err');
+      return;
+    }
+    
     const tienePagarTarde = pagos.pagarCUP > 0 || pagos.pagarUSD > 0;
     if (tienePagarTarde && !clienteId) { showToast('Seleccione cliente para "Pagar más tarde"', 'err'); return; }
     for (const item of cart) { const pr = productos.find(x => x.id === item.productoId); if (!pr || pr.stock < item.cantidad) { showToast(`Stock insuficiente: ${item.nombre}`, 'err'); return; } }
@@ -666,7 +696,10 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
   const ventasHoy = ventas.filter(v => v.fecha >= today.getTime() && v.estado === 'pagada');
   const cajaCUPHoy = ventasHoy.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
   const cajaUSDHoy = ventasHoy.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
-  const gananciaHoy = ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => si + (it.precioCUP - it.pep) * it.cantidad * (1 - v.descuento / 100), 0), 0);
+  const gananciaHoy = ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => {
+    const precioConDescuento = it.precioCUP * (1 - v.descuento / 100);
+    return si + (precioConDescuento - it.pep) * it.cantidad;
+  }, 0), 0);
 
   // Totales del rango de fechas
   const totalRangoCUP = filtered.filter(v => v.estado === 'pagada').reduce((s, v) => s + v.totalCUP, 0);
@@ -748,7 +781,11 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
 
   const totalCUP = ventasSemana.reduce((s, v) => s + v.totalCUP, 0);
   const totalUSD = ventasSemana.reduce((s, v) => s + v.totalUSD, 0);
-  const ganancia = ventasSemana.reduce((s, v) => s + v.items.reduce((si, it) => si + (it.precioCUP - it.pep) * it.cantidad * (1 - v.descuento / 100), 0), 0);
+  // Ganancia = (Precio venta con descuento - PEP) × cantidad
+  const ganancia = ventasSemana.reduce((s, v) => s + v.items.reduce((si, it) => {
+    const precioConDescuento = it.precioCUP * (1 - v.descuento / 100);
+    return si + (precioConDescuento - it.pep) * it.cantidad;
+  }, 0), 0);
   const gastosTotal = gastosSemana.reduce((s, g) => s + g.montoCUP, 0);
   const utilidad = ganancia - gastosTotal;
   const inversionCUP = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
@@ -968,7 +1005,10 @@ function Metrics({ cfg }: { cfg: Record<string, any> }) {
 
   const totalCUP = ventasSemana.reduce((s, v) => s + v.totalCUP, 0);
   const totalUSD = ventasSemana.reduce((s, v) => s + v.totalUSD, 0);
-  const ganancia = ventasSemana.reduce((s, v) => s + v.items.reduce((si, it) => si + (it.precioCUP - it.pep) * it.cantidad * (1 - v.descuento / 100), 0), 0);
+  const ganancia = ventasSemana.reduce((s, v) => s + v.items.reduce((si, it) => {
+    const precioConDescuento = it.precioCUP * (1 - v.descuento / 100);
+    return si + (precioConDescuento - it.pep) * it.cantidad;
+  }, 0), 0);
   const gastosTotal = gastosSemana.reduce((s, g) => s + g.montoCUP, 0);
   const utilidad = ganancia - gastosTotal;
   const inversion = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
