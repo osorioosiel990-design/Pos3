@@ -374,7 +374,7 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
       <Modal open={!!mermaModal} onClose={() => setMermaModal(null)} title="⚠️ Registrar Merma">
         {mermaModal && (<div className="space-y-3">
           <p className="text-sm">Producto: <strong>{mermaModal.nombre}</strong> (Stock: {mermaModal.stock})</p>
-          <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={mermaQty} onChange={e => setMermaQty(+e.target.value)} /></div>
+          <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={numVal(mermaQty)} onChange={e => setMermaQty(e.target.value === '' ? 0 : +e.target.value)} /></div>
         </div>)}
         <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setMermaModal(null)}>Cancelar</button><button className="btn btn-warn" onClick={registrarMerma}>Registrar</button></div>
       </Modal>
@@ -584,7 +584,7 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
               </div>
               <div className="flex items-center gap-1">
                 <button className="btn btn-ghost btn-sm" onClick={() => updateQty(c.productoId, c.cantidad - 1)}>-</button>
-                <input type="number" className="input w-12 text-center text-xs" value={c.cantidad} onChange={e => updateQty(c.productoId, +e.target.value)} />
+                <input type="number" className="input w-12 text-center text-xs" value={numVal(c.cantidad)} onChange={e => updateQty(c.productoId, e.target.value === '' ? 0 : +e.target.value)} />
                 <button className="btn btn-ghost btn-sm" onClick={() => updateQty(c.productoId, c.cantidad + 1)}>+</button>
               </div>
               <button className="text-red-500" onClick={() => setCart(cart.filter(x => x.productoId !== c.productoId))}>✕</button>
@@ -592,7 +592,7 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
           ))}
         </div>
         <div className="border-t pt-3 space-y-2" style={{ borderColor: 'var(--border)' }}>
-          <div className="flex justify-between items-center"><label className="text-sm">Descuento %</label><input type="number" className="input w-20 text-right" value={descuento} onChange={e => setDescuento(Math.min(100, Math.max(0, +e.target.value)))} /></div>
+          <div className="flex justify-between items-center"><label className="text-sm">Descuento %</label><input type="number" className="input w-20 text-right" value={numVal(descuento)} onChange={e => setDescuento(e.target.value === '' ? 0 : Math.min(100, Math.max(0, +e.target.value)))} /></div>
           <div className="flex justify-between"><span>Total CUP:</span><span className="font-bold">{fmt(totalCUP)}</span></div>
           <div className="flex justify-between"><span>Total USD:</span><span className="font-bold">{fmt(totalUSD)}</span></div>
           <div className="flex gap-2"><button className="btn btn-ghost flex-1" onClick={() => { setCart([]); setDescuento(0); }}>Vaciar</button><button className="btn btn-ok flex-1" onClick={() => cart.length > 0 && setCobrarModal(true)}>💰 COBRAR</button></div>
@@ -642,9 +642,9 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
             <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
               <p className="text-sm font-semibold mb-2">Dividir pago (Total: {fmt(totalMoneda)} {moneda})</p>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs">Efectivo</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.efCUP : pagos.efUSD)} onChange={e => { const v = +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, efCUP: v })); else setPagos(p => ({ ...p, efUSD: v })); }} /></div>
-                <div><label className="text-xs">Transferencia</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.tfCUP : pagos.tfUSD)} onChange={e => { const v = +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, tfCUP: v })); else setPagos(p => ({ ...p, tfUSD: v })); }} /></div>
-                <div><label className="text-xs">Pagar más tarde</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.pagarCUP : pagos.pagarUSD)} onChange={e => { const v = +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, pagarCUP: v })); else setPagos(p => ({ ...p, pagarUSD: v })); }} /></div>
+                <div><label className="text-xs">Efectivo</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.efCUP : pagos.efUSD)} onChange={e => { const v = e.target.value === '' ? 0 : +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, efCUP: v })); else setPagos(p => ({ ...p, efUSD: v })); }} /></div>
+                <div><label className="text-xs">Transferencia</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.tfCUP : pagos.tfUSD)} onChange={e => { const v = e.target.value === '' ? 0 : +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, tfCUP: v })); else setPagos(p => ({ ...p, tfUSD: v })); }} /></div>
+                <div><label className="text-xs">Pagar más tarde</label><input type="number" className="input" value={numVal(moneda === 'CUP' ? pagos.pagarCUP : pagos.pagarUSD)} onChange={e => { const v = e.target.value === '' ? 0 : +e.target.value; if (moneda === 'CUP') setPagos(p => ({ ...p, pagarCUP: v })); else setPagos(p => ({ ...p, pagarUSD: v })); }} /></div>
               </div>
               <p className="text-xs mt-2">Suma: {fmt((moneda === 'CUP' ? pagos.efCUP + pagos.tfCUP + pagos.pagarCUP : pagos.efUSD + pagos.tfUSD + pagos.pagarUSD))} / {fmt(totalMoneda)}</p>
             </div>
@@ -983,7 +983,7 @@ function Clients({ cfg }: { cfg: Record<string, any> }) {
       {conSaldo.length > 0 && (<div className="card p-4 mb-4"><h3 className="font-semibold mb-3">💳 Cuentas por Cobrar</h3><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Saldo CUP</th><th>Saldo USD</th><th></th></tr></thead><tbody>{conSaldo.map(c => (<tr key={c.id}><td className="font-medium">{c.nombre}</td><td>{fmt(c.saldoCUP)}<p className="equivalent">≈ {fmt(toUSD(c.saldoCUP, tasa))} USD</p></td><td>{fmt(c.saldoUSD)}<p className="equivalent">≈ {fmt(toCUP(c.saldoUSD, tasa))} CUP</p></td><td><button className="btn btn-ok btn-sm" onClick={() => setAbonoModal(c)}>💵 Abono</button> <button className="btn btn-ghost btn-sm" onClick={() => openEdit(c)}>✏️</button></td></tr>))}</tbody></table></div></div>)}
       <div className="card table-wrap"><table><thead><tr><th>Nombre</th><th>Teléfono</th><th>Saldo CUP</th><th>Saldo USD</th><th></th></tr></thead><tbody>{clientes.map(c => (<tr key={c.id}><td>{c.nombre}</td><td>{c.telefono}</td><td>{fmt(c.saldoCUP)}</td><td>{fmt(c.saldoUSD)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(c)}>✏️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(c)}>🗑️</button></td></tr>))}</tbody></table></div>
       <Modal open={modal} onClose={() => setModal(false)} title={editItem ? 'Editar' : 'Nuevo Cliente'}><div className="space-y-3"><div><label className="text-xs font-medium">Nombre *</label><input className="input" value={form.nombre || ''} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} /></div><div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-medium">Teléfono</label><input className="input" value={form.telefono || ''} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></div><div><label className="text-xs font-medium">Email</label><input className="input" value={form.email || ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div></div><div><label className="text-xs font-medium">Dirección</label><input className="input" value={form.direccion || ''} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} /></div><div><label className="text-xs font-medium">Notas</label><textarea className="input" rows={2} value={form.notas || ''} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></div></div><div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={save}>Guardar</button></div></Modal>
-      <Modal open={!!abonoModal} onClose={() => setAbonoModal(null)} title="💵 Abono">{abonoModal && (<div className="space-y-3"><p>Cliente: <strong>{abonoModal.nombre}</strong></p><p>Saldo: {fmt(abonoModal.saldoCUP)} CUP / {fmt(abonoModal.saldoUSD)} USD</p><div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-medium">Abono CUP</label><input type="number" className="input" value={numVal(abonoCUP)} onChange={e => setAbonoCUP(+e.target.value)} /></div><div><label className="text-xs font-medium">Abono USD</label><input type="number" className="input" value={numVal(abonoUSD)} onChange={e => setAbonoUSD(+e.target.value)} /></div></div></div>)}<div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setAbonoModal(null)}>Cancelar</button><button className="btn btn-ok" onClick={registrarAbono}>Registrar</button></div></Modal>
+      <Modal open={!!abonoModal} onClose={() => setAbonoModal(null)} title="💵 Abono">{abonoModal && (<div className="space-y-3"><p>Cliente: <strong>{abonoModal.nombre}</strong></p><p>Saldo: {fmt(abonoModal.saldoCUP)} CUP / {fmt(abonoModal.saldoUSD)} USD</p><div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-medium">Abono CUP</label><input type="number" className="input" value={numVal(abonoCUP)} onChange={e => setAbonoCUP(e.target.value === '' ? 0 : +e.target.value)} /></div><div><label className="text-xs font-medium">Abono USD</label><input type="number" className="input" value={numVal(abonoUSD)} onChange={e => setAbonoUSD(e.target.value === '' ? 0 : +e.target.value)} /></div></div></div>)}<div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setAbonoModal(null)}>Cancelar</button><button className="btn btn-ok" onClick={registrarAbono}>Registrar</button></div></Modal>
     </div>
   );
 }
@@ -1175,13 +1175,13 @@ function Settings({ cfg, refreshCfg }: { cfg: Record<string, any>; refreshCfg: (
 
   return (
     <div className="space-y-6">
-      <div className="card p-6"><h3 className="font-bold text-lg mb-4">💱 Tasa de Cambio</h3><div className="flex gap-3 items-end"><div className="flex-1"><label className="text-xs font-medium">1 USD = ? CUP</label><input type="number" className="input" value={tasa} onChange={e => setTasa(+e.target.value)} /></div><button className="btn btn-primary" onClick={saveTasa}>Guardar</button><button className="btn btn-ghost" onClick={() => setShowTasas(true)}>📋 Historial</button></div></div>
+      <div className="card p-6"><h3 className="font-bold text-lg mb-4">💱 Tasa de Cambio</h3><div className="flex gap-3 items-end"><div className="flex-1"><label className="text-xs font-medium">1 USD = ? CUP</label><input type="number" className="input" value={numVal(tasa)} onChange={e => setTasa(e.target.value === '' ? 0 : +e.target.value)} /></div><button className="btn btn-primary" onClick={saveTasa}>Guardar</button><button className="btn btn-ghost" onClick={() => setShowTasas(true)}>📋 Historial</button></div></div>
 
       <div className="card p-6"><h3 className="font-bold text-lg mb-4">👥 Accionistas y Dependienta</h3><div className="space-y-3">
         <div><label className="text-xs font-medium">Nombre Accionista 1</label><input className="input" value={acc1Name} onChange={e => setAcc1Name(e.target.value)} /></div>
         <div><label className="text-xs font-medium">Nombre Accionista 2</label><input className="input" value={acc2Name} onChange={e => setAcc2Name(e.target.value)} /></div>
         <div><label className="text-xs font-medium">Nombre Dependienta</label><input className="input" value={depName} onChange={e => setDepName(e.target.value)} /></div>
-        <div><label className="text-xs font-medium">% Dependienta (del Accionista 2)</label><input type="number" className="input" value={pctDep} onChange={e => setPctDep(+e.target.value)} min={0} max={100} /></div>
+        <div><label className="text-xs font-medium">% Dependienta (del Accionista 2)</label><input type="number" className="input" value={numVal(pctDep)} onChange={e => setPctDep(e.target.value === '' ? 0 : Math.min(100, Math.max(0, +e.target.value)))} min={0} max={100} /></div>
         <button className="btn btn-primary" onClick={saveDep}>Guardar</button>
       </div></div>
 

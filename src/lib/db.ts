@@ -284,7 +284,7 @@ export function genVentaNum(): string { return 'V-' + Date.now().toString(36).to
 
 export const toUSD = (cup: number, tasa: number) => tasa > 0 ? cup / tasa : 0;
 export const toCUP = (usd: number, tasa: number) => usd * tasa;
-export const numVal = (v: number | undefined | null) => v === undefined || v === null ? '' : v;
+export const numVal = (v: number | undefined | null) => v === undefined || v === null || v === 0 ? '' : v;
 
 export function getWeekRange(date: Date = new Date()) {
   const d = new Date(date);
