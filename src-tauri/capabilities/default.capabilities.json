@@ -1,0 +1,21 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema-capabilities.json",
+  "description": "Default capability for the main window",
+  "permissions": [
+    "core:path:default",
+    "core:fs:read-file",
+    "core:fs:write-file",
+    "core:fs:read-dir",
+    "core:fs:copy-file",
+    "core:fs:create-dir",
+    "core:fs:remove-dir",
+    "core:fs:remove-file",
+    "core:fs:rename-file",
+    "core:fs:exists",
+    "core:dialog:open",
+    "core:dialog:save",
+    "core:shell:open",
+    "core:notification:default"
+  ],
+  "windows": ["main"]
+}

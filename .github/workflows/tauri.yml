@@ -1,0 +1,42 @@
+name: Build Tauri App (.exe)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: Pos3/package-lock.json
+
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Instalar dependencias npm
+        working-directory: Pos3
+        run: npm install
+
+      - name: Generar iconos de Tauri
+        working-directory: Pos3
+        run: npx tauri icon public/icon.png
+
+      - name: Compilar app de Tauri (.exe)
+        working-directory: Pos3
+        run: npm run tauri:build
+
+      - name: Subir instaladores como artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-installers
+          path: Pos3/src-tauri/target/release/bundle/*
+          retention-days: 30
