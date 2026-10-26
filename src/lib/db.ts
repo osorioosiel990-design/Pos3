@@ -1,15 +1,32 @@
 // IndexedDB + Crypto + Storage utilities for Ferretería Suárez
 
 const DB_NAME = 'ferreteriasuarez';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export interface Producto {
   id?: number; nombre: string; codigo: string; categoria: string; unidad: string;
   compraCUP: number; compraUSD: number; ventaCUP: number; ventaUSD: number;
-  pep: number; pepUSD: number; stock: number; min: number; foto: string; creado: number;
+  pep: number; pepUSD: number; 
+  stock: number; // Stock total (tienda + almacén) - mantenido por compatibilidad
+  stockTienda: number; // Stock en tienda (disponible para venta)
+  stockAlmacen: number; // Stock en almacén (reserva)
+  min: number; foto: string; creado: number;
   precioFijoCUP?: boolean;
   precioFijoUSD?: boolean;
   loteActual?: number;
+}
+
+export interface Transferencia {
+  id?: number;
+  productoId: number;
+  productoNombre: string;
+  cantidad: number;
+  unidad: string;
+  desde: 'tienda' | 'almacen';
+  hacia: 'tienda' | 'almacen';
+  nota: string;
+  fecha: number;
+  creado: number;
 }
 
 export interface Lote {
@@ -131,6 +148,7 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!d.objectStoreNames.contains('config')) d.createObjectStore('config', { keyPath: 'key' });
       if (!d.objectStoreNames.contains('tasas')) d.createObjectStore('tasas', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('cierres')) d.createObjectStore('cierres', { keyPath: 'id', autoIncrement: true });
+      if (!d.objectStoreNames.contains('transferencias')) d.createObjectStore('transferencias', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('logs')) d.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
     };
     req.onsuccess = () => { db = req.result; resolve(db); };

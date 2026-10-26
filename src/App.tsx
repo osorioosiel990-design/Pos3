@@ -8,7 +8,7 @@ import {
   Storage, verifyMasterKey, getLicense, saveLicense, isLicenseValid, clearLicense,
   encryptData, decryptData, fmt, fmtDate, fmtDateTime, genVentaNum,
   toUSD, toCUP, numVal, getWeekRange,
-  type Producto, type Venta, type VentaItem, type Cliente, type Gasto, type Anulacion, type Tasa, type CierreSemanal
+  type Producto, type Venta, type VentaItem, type Cliente, type Gasto, type Anulacion, type Tasa, type CierreSemanal, type Transferencia
 } from './lib/db';
 
 Chart.register(...registerables);
@@ -58,7 +58,7 @@ function HelpBtn({ text }: { text: string }) {
 }
 
 // ============ MAIN APP ============
-type Page = 'dashboard' | 'inventory' | 'purchases' | 'pos' | 'sales' | 'cancellations' | 'clients' | 'metrics' | 'expenses' | 'backup' | 'settings' | 'weekly' | 'history';
+type Page = 'dashboard' | 'inventory' | 'purchases' | 'transfers' | 'pos' | 'sales' | 'cancellations' | 'clients' | 'metrics' | 'expenses' | 'backup' | 'settings' | 'weekly' | 'history';
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -98,6 +98,7 @@ export default function App() {
     { id: 'dashboard', icon: '📊', label: 'Dashboard' },
     { id: 'inventory', icon: '📦', label: 'Inventario' },
     { id: 'purchases', icon: '📥', label: 'Compras' },
+    { id: 'transfers', icon: '🔄', label: 'Transferencias' },
     { id: 'pos', icon: '🛒', label: 'POS' },
     { id: 'sales', icon: '🧾', label: 'Ventas' },
     { id: 'weekly', icon: '📅', label: 'Cierre Semanal' },
@@ -121,6 +122,7 @@ export default function App() {
           {page === 'dashboard' && <Dashboard cfg={cfg} setPage={setPage} />}
           {page === 'inventory' && <Inventory cfg={cfg} />}
           {page === 'purchases' && <Purchases cfg={cfg} />}
+          {page === 'transfers' && <Transfers cfg={cfg} />}
           {page === 'pos' && <POS cfg={cfg} />}
           {page === 'sales' && <Sales cfg={cfg} />}
           {page === 'weekly' && <WeeklyClose cfg={cfg} />}
@@ -228,6 +230,7 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
   const [modal, setModal] = useState(false);
   const [mermaModal, setMermaModal] = useState<Producto | null>(null);
   const [mermaQty, setMermaQty] = useState(0);
+  const [mermaUbicacion, setMermaUbicacion] = useState<'tienda' | 'almacen'>('tienda');
   const [editItem, setEditItem] = useState<Producto | null>(null);
   const [form, setForm] = useState<Partial<Producto>>({});
   const tasa = cfg.tasa || 350;
@@ -245,7 +248,7 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
   const inversionCUP = filtered.reduce((s, p) => s + (p.stock * p.pep), 0);
   const inversionUSD = toUSD(inversionCUP, tasa);
 
-  const openNew = () => { setEditItem(null); setForm({ nombre: '', codigo: '', categoria: cfg.categorias?.[0] || '', unidad: cfg.unidades?.[0] || 'Unidad', compraCUP: 0, compraUSD: 0, ventaCUP: 0, ventaUSD: 0, pep: 0, pepUSD: 0, stock: 0, min: 0, foto: '', precioFijoCUP: false, precioFijoUSD: false }); setModal(true); };
+  const openNew = () => { setEditItem(null); setForm({ nombre: '', codigo: '', categoria: cfg.categorias?.[0] || '', unidad: cfg.unidades?.[0] || 'Unidad', compraCUP: 0, compraUSD: 0, ventaCUP: 0, ventaUSD: 0, pep: 0, pepUSD: 0, stock: 0, stockTienda: 0, stockAlmacen: 0, min: 0, foto: '', precioFijoCUP: false, precioFijoUSD: false }); setModal(true); };
   const openEdit = (p: Producto) => { setEditItem(p); setForm({ ...p }); setModal(true); };
 
   const handleVentaCUP = (val: number) => setForm(f => ({ ...f, ventaCUP: val, ventaUSD: toUSD(val, tasa) }));
@@ -263,6 +266,11 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
 
   const save = async () => {
     if (!form.nombre?.trim()) { showToast('Nombre requerido', 'err'); return; }
+    // Calcular stock total
+    const stockTienda = form.stockTienda || 0;
+    const stockAlmacen = form.stockAlmacen || 0;
+    const stockTotal = stockTienda + stockAlmacen;
+    
     if (editItem) {
       let newPep = editItem.pep;
       let newPepUSD = editItem.pepUSD;
@@ -272,10 +280,10 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
       if (form.compraUSD !== undefined && form.compraUSD !== editItem.compraUSD && editItem.stock > 0) {
         newPepUSD = form.compraUSD;
       }
-      await dbPut('productos', { ...editItem, ...form, pep: newPep, pepUSD: newPepUSD });
+      await dbPut('productos', { ...editItem, ...form, stock: stockTotal, stockTienda, stockAlmacen, pep: newPep, pepUSD: newPepUSD });
       showToast('Actualizado', 'ok');
     } else {
-      const nuevo = { ...form, pep: form.compraCUP || 0, pepUSD: form.compraUSD || 0, creado: Date.now() } as Producto;
+      const nuevo = { ...form, stock: stockTotal, stockTienda, stockAlmacen, pep: form.compraCUP || 0, pepUSD: form.compraUSD || 0, creado: Date.now() } as Producto;
       await dbAdd('productos', nuevo);
       showToast('Creado', 'ok');
     }
@@ -289,9 +297,21 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
 
   const registrarMerma = async () => {
     if (!mermaModal || mermaQty <= 0) { showToast('Cantidad inválida', 'err'); return; }
-    if (mermaQty > mermaModal.stock) { showToast('No puede ser mayor al stock', 'err'); return; }
-    await dbPut('productos', { ...mermaModal, stock: mermaModal.stock - mermaQty });
-    showToast(`Merma: ${mermaQty} ${mermaModal.unidad}`, 'warn');
+    
+    let newStockTienda = mermaModal.stockTienda || 0;
+    let newStockAlmacen = mermaModal.stockAlmacen || 0;
+    
+    if (mermaUbicacion === 'tienda') {
+      if (mermaQty > newStockTienda) { showToast('No hay suficiente stock en tienda', 'err'); return; }
+      newStockTienda -= mermaQty;
+    } else {
+      if (mermaQty > newStockAlmacen) { showToast('No hay suficiente stock en almacén', 'err'); return; }
+      newStockAlmacen -= mermaQty;
+    }
+    
+    const newStockTotal = newStockTienda + newStockAlmacen;
+    await dbPut('productos', { ...mermaModal, stock: newStockTotal, stockTienda: newStockTienda, stockAlmacen: newStockAlmacen });
+    showToast(`Merma: ${mermaQty} ${mermaModal.unidad} de ${mermaUbicacion === 'tienda' ? 'tienda' : 'almacén'}`, 'warn');
     setMermaModal(null); setMermaQty(0); load();
   };
 
@@ -336,7 +356,7 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
                 <span className="text-sm font-bold" style={{ color: 'var(--primary)' }}>{fmt(p.ventaCUP)}</span>
                 {statusBadge(p)}
               </div>
-              <p className="text-xs mt-1">Stock: {p.stock} {p.unidad}</p>
+              <p className="text-xs mt-1">🏪 {p.stockTienda || 0} | 📦 {p.stockAlmacen || 0}</p>
               <p className="text-xs" style={{ color: 'var(--text2)' }}>Inv: {fmt(p.stock * p.pep)} CUP</p>
               <div className="flex gap-1 mt-2">
                 <button className="btn btn-ghost btn-sm flex-1" onClick={() => openEdit(p)}>✏️</button>
@@ -347,7 +367,7 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
           ))}
         </div>
       ) : (
-        <div className="card table-wrap"><table><thead><tr><th>Producto</th><th>Código</th><th>Cat.</th><th>Stock</th><th>PEP CUP</th><th>PEP USD</th><th>Venta CUP</th><th>Inv CUP</th><th>Inv USD</th><th>Estado</th><th></th></tr></thead><tbody>{filtered.map(p => (<tr key={p.id}><td className="font-medium">{p.nombre}</td><td className="font-mono text-xs">{p.codigo}</td><td>{p.categoria}</td><td>{p.stock}</td><td>{fmt(p.pep)}</td><td>{fmt(p.pepUSD)}</td><td>{fmt(p.ventaCUP)}</td><td>{fmt(p.stock * p.pep)}</td><td>{fmt(toUSD(p.stock * p.pep, tasa))}</td><td>{statusBadge(p)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button> <button className="btn btn-warn btn-sm" onClick={() => { setMermaModal(p); setMermaQty(0); }}>⚠️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(p)}>🗑️</button></td></tr>))}</tbody></table></div>
+        <div className="card table-wrap"><table><thead><tr><th>Producto</th><th>Código</th><th>Cat.</th><th>🏪 Tienda</th><th>📦 Almacén</th><th>Total</th><th>PEP CUP</th><th>Venta CUP</th><th>Inv CUP</th><th>Inv USD</th><th>Estado</th><th></th></tr></thead><tbody>{filtered.map(p => (<tr key={p.id}><td className="font-medium">{p.nombre}</td><td className="font-mono text-xs">{p.codigo}</td><td>{p.categoria}</td><td className="font-bold" style={{ color: 'var(--ok)' }}>{p.stockTienda || 0}</td><td className="font-bold" style={{ color: 'var(--info)' }}>{p.stockAlmacen || 0}</td><td>{p.stock}</td><td>{fmt(p.pep)}</td><td>{fmt(p.ventaCUP)}</td><td>{fmt(p.stock * p.pep)}</td><td>{fmt(toUSD(p.stock * p.pep, tasa))}</td><td>{statusBadge(p)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button> <button className="btn btn-warn btn-sm" onClick={() => { setMermaModal(p); setMermaQty(0); }}>⚠️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(p)}>🗑️</button></td></tr>))}</tbody></table></div>
       )}
 
       <Modal open={modal} onClose={() => setModal(false)} title={editItem ? 'Editar Producto' : 'Nuevo Producto'} wide>
@@ -356,7 +376,8 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
           <div><label className="text-xs font-medium">Código</label><input className="input" value={form.codigo || ''} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} /></div>
           <div><label className="text-xs font-medium">Categoría</label><select className="input" value={form.categoria || ''} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}>{(cfg.categorias || []).map((c: string) => <option key={c}>{c}</option>)}</select></div>
           <div><label className="text-xs font-medium">Unidad</label><select className="input" value={form.unidad || ''} onChange={e => setForm(f => ({ ...f, unidad: e.target.value }))}>{(cfg.unidades || []).map((u: string) => <option key={u}>{u}</option>)}</select></div>
-          <div><label className="text-xs font-medium">Stock</label><input type="number" className="input" value={numVal(form.stock)} onChange={e => setForm(f => ({ ...f, stock: e.target.value === '' ? 0 : +e.target.value }))} /></div>
+          <div><label className="text-xs font-medium">Stock en Tienda</label><input type="number" className="input" value={numVal(form.stockTienda)} onChange={e => setForm(f => ({ ...f, stockTienda: e.target.value === '' ? 0 : +e.target.value }))} /></div>
+          <div><label className="text-xs font-medium">Stock en Almacén</label><input type="number" className="input" value={numVal(form.stockAlmacen)} onChange={e => setForm(f => ({ ...f, stockAlmacen: e.target.value === '' ? 0 : +e.target.value }))} /></div>
           <div><label className="text-xs font-medium">Stock Mín.</label><input type="number" className="input" value={numVal(form.min)} onChange={e => setForm(f => ({ ...f, min: e.target.value === '' ? 0 : +e.target.value }))} /></div>
           <div><label className="text-xs font-medium">Compra CUP</label><input type="number" className="input" value={numVal(form.compraCUP)} onChange={e => handleCompraCUP(e.target.value === '' ? 0 : +e.target.value)} /></div>
           <div><label className="text-xs font-medium">Compra USD</label><input type="number" className="input" value={numVal(form.compraUSD)} onChange={e => handleCompraUSD(e.target.value === '' ? 0 : +e.target.value)} /></div>
@@ -373,7 +394,14 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
 
       <Modal open={!!mermaModal} onClose={() => setMermaModal(null)} title="⚠️ Registrar Merma">
         {mermaModal && (<div className="space-y-3">
-          <p className="text-sm">Producto: <strong>{mermaModal.nombre}</strong> (Stock: {mermaModal.stock})</p>
+          <p className="text-sm">Producto: <strong>{mermaModal.nombre}</strong></p>
+          <p className="text-xs" style={{ color: 'var(--text2)' }}>🏪 Tienda: {mermaModal.stockTienda || 0} | 📦 Almacén: {mermaModal.stockAlmacen || 0}</p>
+          <div><label className="text-xs font-medium">Ubicación</label>
+            <select className="input" value={mermaUbicacion} onChange={e => setMermaUbicacion(e.target.value as 'tienda' | 'almacen')}>
+              <option value="tienda">🏪 Tienda</option>
+              <option value="almacen">📦 Almacén</option>
+            </select>
+          </div>
           <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={numVal(mermaQty)} onChange={e => setMermaQty(e.target.value === '' ? 0 : +e.target.value)} /></div>
         </div>)}
         <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setMermaModal(null)}>Cancelar</button><button className="btn btn-warn" onClick={registrarMerma}>Registrar</button></div>
@@ -387,7 +415,7 @@ function Purchases({ cfg }: { cfg: Record<string, any> }) {
   const [compras, setCompras] = useState<any[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ productoId: 0, cantidad: 0, precioUnitCUP: 0, precioUnitUSD: 0, nota: '', proveedor: '' });
+  const [form, setForm] = useState({ productoId: 0, cantidad: 0, precioUnitCUP: 0, precioUnitUSD: 0, nota: '', proveedor: '', destino: 'almacen' as 'tienda' | 'almacen' });
   const tasa = cfg.tasa || 350;
 
   const load = useCallback(async () => { setCompras(await dbGetAll('compras')); setProductos(await dbGetAll<Producto>('productos')); }, []);
@@ -416,10 +444,22 @@ function Purchases({ cfg }: { cfg: Record<string, any> }) {
       newPepUSD = form.precioUnitUSD;
     }
     
-    await dbAdd('compras', { productoId: producto.id!, productoNombre: producto.nombre, productoCodigo: producto.codigo, cantidad: form.cantidad, unidad: producto.unidad, precioUnitCUP: form.precioUnitCUP, precioUnitUSD: form.precioUnitUSD, totalCUP: form.cantidad * form.precioUnitCUP, totalUSD: form.cantidad * form.precioUnitUSD, nota: form.nota, proveedor: form.proveedor, fecha: Date.now(), creado: Date.now() });
-    await dbPut('productos', { ...producto, stock: producto.stock + form.cantidad, pep: isNaN(newPep) ? form.precioUnitCUP : newPep, pepUSD: isNaN(newPepUSD) ? form.precioUnitUSD : newPepUSD });
-    showToast(`Compra registrada. PEP: ${fmt(isNaN(newPep) ? form.precioUnitCUP : newPep)} CUP`, 'ok');
-    setModal(false); setForm({ productoId: 0, cantidad: 0, precioUnitCUP: 0, precioUnitUSD: 0, nota: '', proveedor: '' }); load();
+    await dbAdd('compras', { productoId: producto.id!, productoNombre: producto.nombre, productoCodigo: producto.codigo, cantidad: form.cantidad, unidad: producto.unidad, precioUnitCUP: form.precioUnitCUP, precioUnitUSD: form.precioUnitUSD, totalCUP: form.cantidad * form.precioUnitCUP, totalUSD: form.cantidad * form.precioUnitUSD, nota: form.nota, proveedor: form.proveedor, destino: form.destino, fecha: Date.now(), creado: Date.now() });
+    
+    // Actualizar stock según destino
+    let newStockTienda = producto.stockTienda || 0;
+    let newStockAlmacen = producto.stockAlmacen || 0;
+    
+    if (form.destino === 'tienda') {
+      newStockTienda += form.cantidad;
+    } else {
+      newStockAlmacen += form.cantidad;
+    }
+    
+    const newStockTotal = newStockTienda + newStockAlmacen;
+    await dbPut('productos', { ...producto, stock: newStockTotal, stockTienda: newStockTienda, stockAlmacen: newStockAlmacen, pep: isNaN(newPep) ? form.precioUnitCUP : newPep, pepUSD: isNaN(newPepUSD) ? form.precioUnitUSD : newPepUSD });
+    showToast(`Compra registrada en ${form.destino === 'tienda' ? 'tienda' : 'almacén'}. PEP: ${fmt(isNaN(newPep) ? form.precioUnitCUP : newPep)} CUP`, 'ok');
+    setModal(false); setForm({ productoId: 0, cantidad: 0, precioUnitCUP: 0, precioUnitUSD: 0, nota: '', proveedor: '', destino: 'almacen' }); load();
   };
 
   return (
@@ -433,12 +473,138 @@ function Purchases({ cfg }: { cfg: Record<string, any> }) {
           <div className="grid grid-cols-2 gap-3">
             <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={numVal(form.cantidad)} onChange={e => setForm(f => ({ ...f, cantidad: e.target.value === '' ? 0 : +e.target.value }))} /></div>
             <div><label className="text-xs font-medium">Proveedor</label><input className="input" value={form.proveedor} onChange={e => setForm(f => ({ ...f, proveedor: e.target.value }))} /></div>
+            <div><label className="text-xs font-medium">Destino</label>
+              <select className="input" value={form.destino} onChange={e => setForm(f => ({ ...f, destino: e.target.value as 'tienda' | 'almacen' }))}>
+                <option value="almacen">📦 Almacén</option>
+                <option value="tienda">🏪 Tienda</option>
+              </select>
+            </div>
             <div><label className="text-xs font-medium">Precio Unit. CUP</label><input type="number" className="input" value={numVal(form.precioUnitCUP)} onChange={e => handlePrecioCUP(e.target.value === '' ? 0 : +e.target.value)} /></div>
             <div><label className="text-xs font-medium">Precio Unit. USD</label><input type="number" className="input" value={numVal(form.precioUnitUSD)} onChange={e => handlePrecioUSD(e.target.value === '' ? 0 : +e.target.value)} /></div>
           </div>
           <div><label className="text-xs font-medium">Nota</label><input className="input" value={form.nota} onChange={e => setForm(f => ({ ...f, nota: e.target.value }))} /></div>
         </div>
         <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={save}>Registrar</button></div>
+      </Modal>
+    </div>
+  );
+}
+
+// ============ TRANSFERS ============
+function Transfers({ cfg }: { cfg: Record<string, any> }) {
+  const [transferencias, setTransferencias] = useState<Transferencia[]>([]);
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ productoId: 0, cantidad: 0, desde: 'almacen' as 'tienda' | 'almacen', hacia: 'tienda' as 'tienda' | 'almacen', nota: '' });
+
+  const load = useCallback(async () => {
+    setTransferencias(await dbGetAll<Transferencia>('transferencias'));
+    setProductos(await dbGetAll<Producto>('productos'));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const producto = productos.find(p => p.id === form.productoId);
+
+  const save = async () => {
+    if (!form.productoId || !producto) { showToast('Seleccione producto', 'err'); return; }
+    if (form.cantidad <= 0) { showToast('Cantidad > 0', 'err'); return; }
+    if (form.desde === form.hacia) { showToast('Ubicación origen y destino deben ser diferentes', 'err'); return; }
+    
+    let newStockTienda = producto.stockTienda || 0;
+    let newStockAlmacen = producto.stockAlmacen || 0;
+    
+    if (form.desde === 'tienda') {
+      if (form.cantidad > newStockTienda) { showToast('Stock insuficiente en tienda', 'err'); return; }
+      newStockTienda -= form.cantidad;
+    } else {
+      if (form.cantidad > newStockAlmacen) { showToast('Stock insuficiente en almacén', 'err'); return; }
+      newStockAlmacen -= form.cantidad;
+    }
+    
+    if (form.hacia === 'tienda') {
+      newStockTienda += form.cantidad;
+    } else {
+      newStockAlmacen += form.cantidad;
+    }
+    
+    const newStockTotal = newStockTienda + newStockAlmacen;
+    
+    await dbAdd('transferencias', {
+      productoId: producto.id!,
+      productoNombre: producto.nombre,
+      cantidad: form.cantidad,
+      unidad: producto.unidad,
+      desde: form.desde,
+      hacia: form.hacia,
+      nota: form.nota,
+      fecha: Date.now(),
+      creado: Date.now()
+    } as Transferencia);
+    
+    await dbPut('productos', { ...producto, stock: newStockTotal, stockTienda: newStockTienda, stockAlmacen: newStockAlmacen });
+    showToast(`Transferencia: ${form.cantidad} ${producto.unidad} de ${form.desde === 'tienda' ? 'tienda' : 'almacén'} a ${form.hacia === 'tienda' ? 'tienda' : 'almacén'}`, 'ok');
+    setModal(false);
+    setForm({ productoId: 0, cantidad: 0, desde: 'almacen', hacia: 'tienda', nota: '' });
+    load();
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <p className="text-sm" style={{ color: 'var(--text2)' }}>{transferencias.length} transferencias</p>
+        <button className="btn btn-primary" onClick={() => setModal(true)}>+ Nueva Transferencia</button>
+      </div>
+      
+      <div className="card table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Producto</th><th>Cantidad</th><th>Desde</th><th>Hacia</th><th>Nota</th></tr></thead>
+          <tbody>
+            {[...transferencias].sort((a, b) => b.fecha - a.fecha).map(t => (
+              <tr key={t.id}>
+                <td className="text-xs">{fmtDateTime(t.fecha)}</td>
+                <td>{t.productoNombre}</td>
+                <td className="font-bold">{t.cantidad} {t.unidad}</td>
+                <td>{t.desde === 'tienda' ? '🏪 Tienda' : '📦 Almacén'}</td>
+                <td>{t.hacia === 'tienda' ? '🏪 Tienda' : '📦 Almacén'}</td>
+                <td className="text-xs">{t.nota || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {transferencias.length === 0 && <p className="text-center py-8" style={{ color: 'var(--text2)' }}>Sin transferencias registradas</p>}
+
+      <Modal open={modal} onClose={() => setModal(false)} title="🔄 Transferir Stock">
+        <div className="space-y-3">
+          <div><label className="text-xs font-medium">Producto</label>
+            <select className="input" value={form.productoId} onChange={e => setForm(f => ({ ...f, productoId: +e.target.value }))}>
+              <option value={0}>Seleccionar...</option>
+              {productos.map(p => <option key={p.id} value={p.id}>{p.nombre} (🏪{p.stockTienda || 0} | 📦{p.stockAlmacen || 0})</option>)}
+            </select>
+          </div>
+          {producto && (
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-sm">Stock actual: 🏪 <strong>{producto.stockTienda || 0}</strong> | 📦 <strong>{producto.stockAlmacen || 0}</strong></p>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs font-medium">Desde</label>
+              <select className="input" value={form.desde} onChange={e => setForm(f => ({ ...f, desde: e.target.value as 'tienda' | 'almacen' }))}>
+                <option value="tienda">🏪 Tienda</option>
+                <option value="almacen">📦 Almacén</option>
+              </select>
+            </div>
+            <div><label className="text-xs font-medium">Hacia</label>
+              <select className="input" value={form.hacia} onChange={e => setForm(f => ({ ...f, hacia: e.target.value as 'tienda' | 'almacen' }))}>
+                <option value="tienda">🏪 Tienda</option>
+                <option value="almacen">📦 Almacén</option>
+              </select>
+            </div>
+          </div>
+          <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={numVal(form.cantidad)} onChange={e => setForm(f => ({ ...f, cantidad: e.target.value === '' ? 0 : +e.target.value }))} /></div>
+          <div><label className="text-xs font-medium">Nota</label><input className="input" value={form.nota} onChange={e => setForm(f => ({ ...f, nota: e.target.value }))} /></div>
+        </div>
+        <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={save}>Transferir</button></div>
       </Modal>
     </div>
   );
@@ -466,19 +632,21 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
   const results = search ? fuse.search(search).slice(0, 100).map(r => r.item) : productos.filter(p => p.ventaCUP > 0 || p.ventaUSD > 0).slice(0, 100);
 
   const addToCart = (p: Producto) => {
+    const stockDisponible = p.stockTienda || 0;
     const ex = cart.find(c => c.productoId === p.id);
     if (ex) {
-      if (ex.cantidad + 1 > p.stock) { showToast('Stock insuficiente', 'err'); return; }
+      if (ex.cantidad + 1 > stockDisponible) { showToast('Stock insuficiente en tienda', 'err'); return; }
       setCart(cart.map(c => c.productoId === p.id ? { ...c, cantidad: c.cantidad + 1, subtotalCUP: (c.cantidad + 1) * c.precioCUP, subtotalUSD: (c.cantidad + 1) * c.precioUSD } : c));
     } else {
-      if (p.stock <= 0) { showToast('Sin stock', 'err'); return; }
+      if (stockDisponible <= 0) { showToast('Sin stock en tienda', 'err'); return; }
       setCart([...cart, { productoId: p.id!, nombre: p.nombre, codigo: p.codigo, cantidad: 1, unidad: p.unidad, precioCUP: p.ventaCUP, precioUSD: p.ventaUSD, subtotalCUP: p.ventaCUP, subtotalUSD: p.ventaUSD, pep: p.pep, pepUSD: p.pepUSD }]);
     }
   };
 
   const updateQty = (pid: number, qty: number) => {
     const p = productos.find(pr => pr.id === pid);
-    if (p && qty > p.stock) { showToast('Stock insuficiente', 'err'); return; }
+    const stockDisponible = p ? (p.stockTienda || 0) : 0;
+    if (p && qty > stockDisponible) { showToast('Stock insuficiente en tienda', 'err'); return; }
     if (qty <= 0) { setCart(cart.filter(c => c.productoId !== pid)); return; }
     setCart(cart.map(c => c.productoId === pid ? { ...c, cantidad: qty, subtotalCUP: qty * c.precioCUP, subtotalUSD: qty * c.precioUSD } : c));
   };
@@ -526,7 +694,7 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
     
     const tienePagarTarde = pagos.pagarCUP > 0 || pagos.pagarUSD > 0;
     if (tienePagarTarde && !clienteId) { showToast('Seleccione cliente para "Pagar más tarde"', 'err'); return; }
-    for (const item of cart) { const pr = productos.find(x => x.id === item.productoId); if (!pr || pr.stock < item.cantidad) { showToast(`Stock insuficiente: ${item.nombre}`, 'err'); return; } }
+    for (const item of cart) { const pr = productos.find(x => x.id === item.productoId); if (!pr || (pr.stockTienda || 0) < item.cantidad) { showToast(`Stock insuficiente en tienda: ${item.nombre}`, 'err'); return; } }
 
     const venta: Venta = {
       num: genVentaNum(), fecha: Date.now(), items: cart, descuento,
@@ -536,7 +704,13 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
       pagarMasTardeCUP: pagos.pagarCUP, pagarMasTardeUSD: pagos.pagarUSD
     };
     await dbAdd('ventas', venta);
-    for (const item of cart) { const pr = productos.find(x => x.id === item.productoId)!; await dbPut('productos', { ...pr, stock: pr.stock - item.cantidad }); }
+    // Descontar de stockTienda y actualizar stock total
+    for (const item of cart) { 
+      const pr = productos.find(x => x.id === item.productoId)!; 
+      const newStockTienda = (pr.stockTienda || 0) - item.cantidad;
+      const newStockAlmacen = pr.stockAlmacen || 0;
+      await dbPut('productos', { ...pr, stock: newStockTienda + newStockAlmacen, stockTienda: newStockTienda, stockAlmacen: newStockAlmacen }); 
+    }
     if (tienePagarTarde && clienteId) {
       const cl = clientes.find(c => c.id === clienteId)!;
       await dbPut('clientes', { ...cl, saldoCUP: Math.max(0, cl.saldoCUP + pagos.pagarCUP), saldoUSD: Math.max(0, cl.saldoUSD + pagos.pagarUSD), compras: cl.compras + 1, ultimaCompra: Date.now() });
@@ -564,7 +738,7 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
                     <td className="font-medium">{p.nombre}</td>
                     <td className="font-mono text-xs">{p.codigo}</td>
                     <td><span style={{ color: 'var(--primary)' }} className="font-bold">{fmt(p.ventaCUP)}</span> <span className="text-xs" style={{ color: 'var(--text2)' }}>/ {fmt(p.ventaUSD)} USD</span></td>
-                    <td><span className={p.stock <= p.min ? 'text-red-500 font-bold' : ''}>{p.stock}</span></td>
+                    <td><span className={(p.stockTienda || 0) <= p.min ? 'text-red-500 font-bold' : ''}>{p.stockTienda || 0}</span></td>
                     <td><button className="btn btn-primary btn-sm">+ Agregar</button></td>
                   </tr>
                 ))}
@@ -708,7 +882,15 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
   const anular = async () => {
     if (!anularModal || !motivo || !detalle.trim()) { showToast('Complete los campos', 'err'); return; }
     const productos = await dbGetAll<Producto>('productos');
-    for (const item of anularModal.items) { const p = productos.find(pr => pr.id === item.productoId); if (p) await dbPut('productos', { ...p, stock: p.stock + item.cantidad }); }
+    // Revertir stock a tienda (las ventas salen de tienda)
+    for (const item of anularModal.items) { 
+      const p = productos.find(pr => pr.id === item.productoId); 
+      if (p) {
+        const newStockTienda = (p.stockTienda || 0) + item.cantidad;
+        const newStockAlmacen = p.stockAlmacen || 0;
+        await dbPut('productos', { ...p, stock: newStockTienda + newStockAlmacen, stockTienda: newStockTienda, stockAlmacen: newStockAlmacen });
+      }
+    }
     if (anularModal.pagarMasTardeCUP > 0 || anularModal.pagarMasTardeUSD > 0) {
       const clientes = await dbGetAll<Cliente>('clientes');
       const cl = clientes.find(c => c.id === anularModal.clienteId);
