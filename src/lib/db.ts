@@ -14,6 +14,45 @@ export interface Producto {
   precioFijoCUP?: boolean;
   precioFijoUSD?: boolean;
   loteActual?: number;
+  fechaVencimiento?: number;
+  codigoBarras?: string;
+}
+
+export interface LoteCompra {
+  id?: number;
+  productoId: number;
+  cantidad: number;
+  cantidadRestante: number; // Para FIFO
+  precioCompraCUP: number;
+  precioCompraUSD: number;
+  fecha: number;
+  proveedor: string;
+  nota: string;
+  destino: 'tienda' | 'almacen';
+  factura?: string;
+}
+
+export interface CierreDiario {
+  id?: number;
+  fecha: number; // timestamp del día
+  ventasIds: number[];
+  totalVentasCUP: number;
+  totalVentasUSD: number;
+  costoVentasCUP: number; // Inversión (PEP × cantidad)
+  costoVentasUSD: number;
+  gananciaBrutaCUP: number;
+  gananciaBrutaUSD: number;
+  cajaCUP: number;
+  cajaUSD: number;
+  // Desglose de pagos
+  efectivoCUP: number;
+  efectivoUSD: number;
+  transferenciaCUP: number;
+  transferenciaUSD: number;
+  creditoCUP: number;
+  creditoUSD: number;
+  tasaUsada: number;
+  creado: number;
 }
 
 export interface Transferencia {
@@ -148,6 +187,8 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!d.objectStoreNames.contains('config')) d.createObjectStore('config', { keyPath: 'key' });
       if (!d.objectStoreNames.contains('tasas')) d.createObjectStore('tasas', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('cierres')) d.createObjectStore('cierres', { keyPath: 'id', autoIncrement: true });
+      if (!d.objectStoreNames.contains('cierresDiarios')) d.createObjectStore('cierresDiarios', { keyPath: 'id', autoIncrement: true });
+      if (!d.objectStoreNames.contains('lotesCompra')) d.createObjectStore('lotesCompra', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('transferencias')) d.createObjectStore('transferencias', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('logs')) d.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
     };

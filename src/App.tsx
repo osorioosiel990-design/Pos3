@@ -8,7 +8,7 @@ import {
   Storage, verifyMasterKey, getLicense, saveLicense, isLicenseValid, clearLicense,
   encryptData, decryptData, fmt, fmtDate, fmtDateTime, genVentaNum,
   toUSD, toCUP, numVal, getWeekRange,
-  type Producto, type Venta, type VentaItem, type Cliente, type Gasto, type Anulacion, type Tasa, type CierreSemanal, type Transferencia
+  type Producto, type Venta, type VentaItem, type Cliente, type Gasto, type Anulacion, type Tasa, type CierreSemanal, type CierreDiario, type Transferencia, type LoteCompra
 } from './lib/db';
 
 Chart.register(...registerables);
@@ -58,7 +58,7 @@ function HelpBtn({ text }: { text: string }) {
 }
 
 // ============ MAIN APP ============
-type Page = 'dashboard' | 'inventory' | 'purchases' | 'transfers' | 'pos' | 'sales' | 'cancellations' | 'clients' | 'metrics' | 'expenses' | 'backup' | 'settings' | 'weekly' | 'history';
+type Page = 'dashboard' | 'inventory' | 'purchases' | 'transfers' | 'pos' | 'sales' | 'cancellations' | 'clients' | 'metrics' | 'expenses' | 'backup' | 'settings' | 'weekly' | 'daily' | 'history';
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -101,6 +101,7 @@ export default function App() {
     { id: 'transfers', icon: '🔄', label: 'Transferencias' },
     { id: 'pos', icon: '🛒', label: 'POS' },
     { id: 'sales', icon: '🧾', label: 'Ventas' },
+    { id: 'daily', icon: '📆', label: 'Cierre Diario' },
     { id: 'weekly', icon: '📅', label: 'Cierre Semanal' },
     { id: 'history', icon: '📚', label: 'Histórico Cierres' },
     { id: 'cancellations', icon: '🚫', label: 'Anulaciones' },
@@ -125,6 +126,7 @@ export default function App() {
           {page === 'transfers' && <Transfers cfg={cfg} />}
           {page === 'pos' && <POS cfg={cfg} />}
           {page === 'sales' && <Sales cfg={cfg} />}
+          {page === 'daily' && <DailyClose cfg={cfg} />}
           {page === 'weekly' && <WeeklyClose cfg={cfg} />}
           {page === 'history' && <CierreHistory cfg={cfg} />}
           {page === 'cancellations' && <Cancellations cfg={cfg} />}
@@ -146,6 +148,7 @@ function Dashboard({ cfg, setPage }: { cfg: Record<string, any>; setPage: (p: Pa
   const [productos, setProductos] = useState<Producto[]>([]);
   const [anulaciones, setAnulaciones] = useState<Anulacion[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [cierresDiarios, setCierresDiarios] = useState<CierreDiario[]>([]);
   const tasa = cfg.tasa || 350;
 
   const load = useCallback(async () => {
@@ -153,26 +156,44 @@ function Dashboard({ cfg, setPage }: { cfg: Record<string, any>; setPage: (p: Pa
     setProductos(await dbGetAll<Producto>('productos'));
     setAnulaciones(await dbGetAll<Anulacion>('anulaciones'));
     setClientes(await dbGetAll<Cliente>('clientes'));
+    setCierresDiarios(await dbGetAll<CierreDiario>('cierresDiarios'));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const ventasHoy = ventas.filter(v => v.fecha >= today.getTime() && v.estado === 'pagada');
   
-  const cajaCUP = ventasHoy.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
-  const cajaUSD = ventasHoy.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
-  const totalHoyCUP = ventasHoy.reduce((s, v) => s + v.totalCUP, 0);
-  const totalHoyUSD = ventasHoy.reduce((s, v) => s + v.totalUSD, 0);
-  const gananciaHoy = ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => {
+  // Cierre diario de hoy
+  const cierreHoy = cierresDiarios.find(c => c.fecha === today.getTime());
+  
+  const cajaCUP = cierreHoy?.cajaCUP || ventasHoy.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
+  const cajaUSD = cierreHoy?.cajaUSD || ventasHoy.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
+  const totalHoyCUP = cierreHoy?.totalVentasCUP || ventasHoy.reduce((s, v) => s + v.totalCUP, 0);
+  const totalHoyUSD = cierreHoy?.totalVentasUSD || ventasHoy.reduce((s, v) => s + v.totalUSD, 0);
+  const inversionHoyCUP = cierreHoy?.costoVentasCUP || 0;
+  const inversionHoyUSD = cierreHoy?.costoVentasUSD || 0;
+  const gananciaHoyCUP = cierreHoy?.gananciaBrutaCUP || ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => {
     const precioConDescuento = it.precioCUP * (1 - v.descuento / 100);
     return si + (precioConDescuento - it.pep) * it.cantidad;
   }, 0), 0);
+  const gananciaHoyUSD = cierreHoy?.gananciaBrutaUSD || 0;
   
-  const inversionCUP = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
-  const inversionUSD = toUSD(inversionCUP, tasa);
+  // Desglose de pagos hoy
+  const efectivoCUP = cierreHoy?.efectivoCUP || ventasHoy.reduce((s, v) => s + v.pagos.efCUP, 0);
+  const efectivoUSD = cierreHoy?.efectivoUSD || ventasHoy.reduce((s, v) => s + v.pagos.efUSD, 0);
+  const transferenciaCUP = cierreHoy?.transferenciaCUP || ventasHoy.reduce((s, v) => s + v.pagos.tfCUP, 0);
+  const transferenciaUSD = cierreHoy?.transferenciaUSD || ventasHoy.reduce((s, v) => s + v.pagos.tfUSD, 0);
+  const creditoCUP = cierreHoy?.creditoCUP || ventasHoy.reduce((s, v) => s + v.pagos.pagarCUP, 0);
+  const creditoUSD = cierreHoy?.creditoUSD || ventasHoy.reduce((s, v) => s + v.pagos.pagarUSD, 0);
   
-  const stockBajo = productos.filter(p => p.stock > 0 && p.stock <= p.min);
-  const agotados = productos.filter(p => p.stock <= 0);
+  // Inventario por ubicación
+  const inversionTiendaCUP = productos.reduce((s, p) => s + ((p.stockTienda || 0) * p.pep), 0);
+  const inversionAlmacenCUP = productos.reduce((s, p) => s + ((p.stockAlmacen || 0) * p.pep), 0);
+  const inversionTotalCUP = inversionTiendaCUP + inversionAlmacenCUP;
+  const inversionTotalUSD = toUSD(inversionTotalCUP, tasa);
+  
+  const stockBajo = productos.filter(p => (p.stockTienda || 0) > 0 && (p.stockTienda || 0) <= p.min);
+  const agotados = productos.filter(p => (p.stockTienda || 0) <= 0);
   const anulPend = anulaciones.filter(a => a.estado === 'pendiente');
   const clientesSaldo = clientes.filter(c => c.saldoCUP > 0 || c.saldoUSD > 0);
 
@@ -195,24 +216,90 @@ function Dashboard({ cfg, setPage }: { cfg: Record<string, any>; setPage: (p: Pa
 
       <div className="grid-4 mb-6">
         <div className="kpi"><div className="kpi-label">Ventas Hoy</div><div className="kpi-value">{ventasHoy.length}</div><p className="equivalent">CUP: {fmt(totalHoyCUP)} | USD: {fmt(totalHoyUSD)}</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoy)}</div><p className="equivalent">≈ {fmt(toUSD(gananciaHoy, tasa))} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}>
-          <div className="kpi-label">💰 Inversión Inventario</div>
-          <div className="kpi-value">{fmt(inversionCUP)} CUP</div>
-          <p className="equivalent">≈ {fmt(inversionUSD)} USD</p>
-        </div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(gananciaHoyUSD)} USD</p></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión Hoy (Costo)</div><div className="kpi-value">{fmt(inversionHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionHoyUSD)} USD</p></div>
         <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Stock Bajo / Agotados</div><div className="kpi-value">{stockBajo.length + agotados.length}</div></div>
+      </div>
+      
+      {/* Desglose de Inventario por Ubicación */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}>
+          <div className="kpi-label">🏪 Inventario en Tienda</div>
+          <div className="kpi-value">{fmt(inversionTiendaCUP)} CUP</div>
+          <p className="equivalent">Disponible para venta</p>
+        </div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}>
+          <div className="kpi-label">📦 Inventario en Almacén</div>
+          <div className="kpi-value">{fmt(inversionAlmacenCUP)} CUP</div>
+          <p className="equivalent">Requiere transferencia</p>
+        </div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--primary)' }}>
+          <div className="kpi-label">💰 Inversión Total</div>
+          <div className="kpi-value">{fmt(inversionTotalCUP)} CUP</div>
+          <p className="equivalent">≈ {fmt(inversionTotalUSD)} USD</p>
+        </div>
+      </div>
+      
+      {/* Desglose de Pagos Hoy */}
+      <div className="card p-4 mb-6">
+        <h3 className="font-semibold mb-3">💳 Desglose de Pagos Hoy</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
+            <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
+            <p className="text-sm">{fmt(efectivoUSD)} USD</p>
+          </div>
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
+            <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
+            <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
+          </div>
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
+            <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
+            <p className="text-sm">{fmt(creditoUSD)} USD</p>
+          </div>
+        </div>
       </div>
 
       {/* Gráficos simplificados - se pueden agregar después */}
 
+      {/* Cierre del Día */}
+      <div className="card p-4 mb-6">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="font-semibold">📊 Cierre del Día</h3>
+          <span className="text-xs" style={{ color: 'var(--text2)' }}>{fmtDate(today.getTime())}</span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <p className="text-xs" style={{ color: 'var(--text2)' }}>Total Ventas</p>
+            <p className="text-lg font-bold">{fmt(totalHoyCUP)} CUP</p>
+            <p className="text-xs">{fmt(totalHoyUSD)} USD</p>
+          </div>
+          <div>
+            <p className="text-xs" style={{ color: 'var(--text2)' }}>Inversión (Costo)</p>
+            <p className="text-lg font-bold" style={{ color: 'var(--err)' }}>{fmt(inversionHoyCUP)} CUP</p>
+            <p className="text-xs">{fmt(inversionHoyUSD)} USD</p>
+          </div>
+          <div>
+            <p className="text-xs" style={{ color: 'var(--text2)' }}>Ganancia</p>
+            <p className="text-lg font-bold" style={{ color: 'var(--ok)' }}>{fmt(gananciaHoyCUP)} CUP</p>
+            <p className="text-xs">{fmt(gananciaHoyUSD)} USD</p>
+          </div>
+          <div>
+            <p className="text-xs" style={{ color: 'var(--text2)' }}>Ventas Realizadas</p>
+            <p className="text-lg font-bold">{ventasHoy.length}</p>
+          </div>
+        </div>
+      </div>
+      
       <div className="card p-4">
         <h3 className="font-semibold mb-3">Alertas</h3>
         <div className="space-y-2">
-          {agotados.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#fee2e2' }} onClick={() => setPage('inventory')}><span className="text-sm text-red-700">🔴 {agotados.length} productos agotados</span></div>}
-          {stockBajo.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#fef3c7' }} onClick={() => setPage('inventory')}><span className="text-sm text-amber-700">🟡 {stockBajo.length} productos stock bajo</span></div>}
+          {agotados.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#fee2e2' }} onClick={() => setPage('inventory')}><span className="text-sm text-red-700">🔴 {agotados.length} productos agotados en tienda</span></div>}
+          {stockBajo.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#fef3c7' }} onClick={() => setPage('inventory')}><span className="text-sm text-amber-700">🟡 {stockBajo.length} productos con stock bajo en tienda</span></div>}
           {anulPend.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#fef3c7' }} onClick={() => setPage('cancellations')}><span className="text-sm text-amber-700">🚫 {anulPend.length} anulaciones pendientes</span></div>}
-          {clientesSaldo.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#cffafe' }} onClick={() => setPage('clients')}><span className="text-sm text-cyan-700">💳 {clientesSaldo.length} clientes con saldo</span></div>}
+          {clientesSaldo.length > 0 && <div className="p-2 rounded cursor-pointer" style={{ background: '#cffafe' }} onClick={() => setPage('clients')}><span className="text-sm text-cyan-700">💳 {clientesSaldo.length} clientes con saldo pendiente</span></div>}
           {agotados.length === 0 && stockBajo.length === 0 && anulPend.length === 0 && clientesSaldo.length === 0 && <p className="text-sm" style={{ color: 'var(--text2)' }}>✅ Sin alertas</p>}
         </div>
       </div>
@@ -223,6 +310,7 @@ function Dashboard({ cfg, setPage }: { cfg: Record<string, any>; setPage: (p: Pa
 // ============ INVENTORY ============
 function Inventory({ cfg }: { cfg: Record<string, any> }) {
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [lotes, setLotes] = useState<LoteCompra[]>([]);
   const [view, setView] = useState<'grid' | 'table'>('grid');
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState('');
@@ -231,19 +319,44 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
   const [mermaModal, setMermaModal] = useState<Producto | null>(null);
   const [mermaQty, setMermaQty] = useState(0);
   const [mermaUbicacion, setMermaUbicacion] = useState<'tienda' | 'almacen'>('tienda');
+  const [lotesModal, setLotesModal] = useState<Producto | null>(null);
   const [editItem, setEditItem] = useState<Producto | null>(null);
   const [form, setForm] = useState<Partial<Producto>>({});
   const tasa = cfg.tasa || 350;
 
-  const load = useCallback(async () => { setProductos(await dbGetAll<Producto>('productos')); }, []);
+  const load = useCallback(async () => { 
+    const productos = await dbGetAll<Producto>('productos');
+    const lotes = await dbGetAll<LoteCompra>('lotesCompra');
+    
+    // Migración automática: productos antiguos sin stockTienda/stockAlmacen
+    const necesitaMigracion = productos.some(p => p.stockTienda === undefined || p.stockAlmacen === undefined);
+    if (necesitaMigracion) {
+      for (const p of productos) {
+        if (p.stockTienda === undefined || p.stockAlmacen === undefined) {
+          await dbPut('productos', {
+            ...p,
+            stockTienda: p.stock || 0,
+            stockAlmacen: 0
+          });
+        }
+      }
+      showToast('Datos migrados correctamente', 'ok');
+      const productosActualizados = await dbGetAll<Producto>('productos');
+      setProductos(productosActualizados);
+    } else {
+      setProductos(productos);
+    }
+    
+    setLotes(lotes);
+  }, []);
   useEffect(() => { load(); }, [load]);
 
   const fuse = new Fuse(productos, { keys: ['nombre', 'codigo', 'categoria'], threshold: 0.4 });
   let filtered = search ? fuse.search(search).map(r => r.item) : productos;
   if (filterCat) filtered = filtered.filter(p => p.categoria === filterCat);
-  if (filterStatus === 'low') filtered = filtered.filter(p => p.stock > 0 && p.stock <= p.min);
-  if (filterStatus === 'out') filtered = filtered.filter(p => p.stock <= 0);
-  if (filterStatus === 'ok') filtered = filtered.filter(p => p.stock > p.min);
+  if (filterStatus === 'low') filtered = filtered.filter(p => (p.stockTienda || 0) > 0 && (p.stockTienda || 0) <= p.min);
+  if (filterStatus === 'out') filtered = filtered.filter(p => (p.stockTienda || 0) <= 0);
+  if (filterStatus === 'ok') filtered = filtered.filter(p => (p.stockTienda || 0) > p.min);
 
   const inversionCUP = filtered.reduce((s, p) => s + (p.stock * p.pep), 0);
   const inversionUSD = toUSD(inversionCUP, tasa);
@@ -270,6 +383,12 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
     const stockTienda = form.stockTienda || 0;
     const stockAlmacen = form.stockAlmacen || 0;
     const stockTotal = stockTienda + stockAlmacen;
+    
+    // Validación de consistencia
+    if (stockTienda < 0 || stockAlmacen < 0) {
+      showToast('El stock no puede ser negativo', 'err');
+      return;
+    }
     
     if (editItem) {
       let newPep = editItem.pep;
@@ -316,8 +435,9 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
   };
 
   const statusBadge = (p: Producto) => {
-    if (p.stock <= 0) return <span className="badge badge-err">Agotado</span>;
-    if (p.stock <= p.min) return <span className="badge badge-warn">Bajo</span>;
+    const stockDisponible = p.stockTienda || 0;
+    if (stockDisponible <= 0) return <span className="badge badge-err">Agotado</span>;
+    if (stockDisponible <= p.min) return <span className="badge badge-warn">Bajo</span>;
     return <span className="badge badge-ok">OK</span>;
   };
 
@@ -367,7 +487,10 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
           ))}
         </div>
       ) : (
-        <div className="card table-wrap"><table><thead><tr><th>Producto</th><th>Código</th><th>Cat.</th><th>🏪 Tienda</th><th>📦 Almacén</th><th>Total</th><th>PEP CUP</th><th>Venta CUP</th><th>Inv CUP</th><th>Inv USD</th><th>Estado</th><th></th></tr></thead><tbody>{filtered.map(p => (<tr key={p.id}><td className="font-medium">{p.nombre}</td><td className="font-mono text-xs">{p.codigo}</td><td>{p.categoria}</td><td className="font-bold" style={{ color: 'var(--ok)' }}>{p.stockTienda || 0}</td><td className="font-bold" style={{ color: 'var(--info)' }}>{p.stockAlmacen || 0}</td><td>{p.stock}</td><td>{fmt(p.pep)}</td><td>{fmt(p.ventaCUP)}</td><td>{fmt(p.stock * p.pep)}</td><td>{fmt(toUSD(p.stock * p.pep, tasa))}</td><td>{statusBadge(p)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button> <button className="btn btn-warn btn-sm" onClick={() => { setMermaModal(p); setMermaQty(0); }}>⚠️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(p)}>🗑️</button></td></tr>))}</tbody></table></div>
+        <div className="card table-wrap"><table><thead><tr><th>Producto</th><th>Código</th><th>Cat.</th><th>🏪 Tienda</th><th>📦 Almacén</th><th>Total</th><th>PEP CUP</th><th>Venta CUP</th><th>Inv CUP</th><th>Inv USD</th><th>Lotes</th><th>Estado</th><th></th></tr></thead><tbody>{filtered.map(p => {
+          const lotesProducto = lotes.filter(l => l.productoId === p.id && l.cantidadRestante > 0);
+          return (<tr key={p.id}><td className="font-medium">{p.nombre}</td><td className="font-mono text-xs">{p.codigo}</td><td>{p.categoria}</td><td className="font-bold" style={{ color: 'var(--ok)' }}>{p.stockTienda || 0}</td><td className="font-bold" style={{ color: 'var(--info)' }}>{p.stockAlmacen || 0}</td><td>{p.stock}</td><td>{fmt(p.pep)}</td><td>{fmt(p.ventaCUP)}</td><td>{fmt(p.stock * p.pep)}</td><td>{fmt(toUSD(p.stock * p.pep, tasa))}</td><td>{lotesProducto.length > 0 ? <button className="btn btn-info btn-sm" onClick={() => setLotesModal(p)}>{lotesProducto.length} lote{lotesProducto.length > 1 ? 's' : ''}</button> : <span className="text-xs" style={{ color: 'var(--text2)' }}>Sin lotes</span>}</td><td>{statusBadge(p)}</td><td><button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button> <button className="btn btn-warn btn-sm" onClick={() => { setMermaModal(p); setMermaQty(0); }}>⚠️</button> <button className="btn btn-ghost btn-sm" onClick={() => del(p)}>🗑️</button></td></tr>);
+        })}</tbody></table></div>
       )}
 
       <Modal open={modal} onClose={() => setModal(false)} title={editItem ? 'Editar Producto' : 'Nuevo Producto'} wide>
@@ -405,6 +528,39 @@ function Inventory({ cfg }: { cfg: Record<string, any> }) {
           <div><label className="text-xs font-medium">Cantidad</label><input type="number" className="input" value={numVal(mermaQty)} onChange={e => setMermaQty(e.target.value === '' ? 0 : +e.target.value)} /></div>
         </div>)}
         <div className="flex gap-2 mt-4 justify-end"><button className="btn btn-ghost" onClick={() => setMermaModal(null)}>Cancelar</button><button className="btn btn-warn" onClick={registrarMerma}>Registrar</button></div>
+      </Modal>
+      
+      <Modal open={!!lotesModal} onClose={() => setLotesModal(null)} title="📦 Lotes de Compra" wide>
+        {lotesModal && (() => {
+          const lotesProducto = lotes.filter(l => l.productoId === lotesModal.id && l.cantidadRestante > 0).sort((a, b) => a.fecha - b.fecha);
+          const totalInvertido = lotesProducto.reduce((s, l) => s + (l.cantidadRestante * l.precioCompraCUP), 0);
+          return (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold">{lotesModal.nombre}</p>
+              <p className="text-xs" style={{ color: 'var(--text2)' }}>Total invertido en lotes activos: <strong>{fmt(totalInvertido)} CUP</strong></p>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Fecha</th><th>Proveedor</th><th>Cant. Original</th><th>Restante</th><th>Precio CUP</th><th>Precio USD</th><th>Destino</th><th>Inversión</th></tr></thead>
+                  <tbody>
+                    {lotesProducto.map(l => (
+                      <tr key={l.id}>
+                        <td className="text-xs">{fmtDate(l.fecha)}</td>
+                        <td>{l.proveedor || '-'}</td>
+                        <td>{l.cantidad}</td>
+                        <td className="font-bold">{l.cantidadRestante}</td>
+                        <td>{fmt(l.precioCompraCUP)}</td>
+                        <td>{fmt(l.precioCompraUSD)}</td>
+                        <td>{l.destino === 'tienda' ? '🏪 Tienda' : '📦 Almacén'}</td>
+                        <td className="font-semibold">{fmt(l.cantidadRestante * l.precioCompraCUP)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {lotesProducto.length === 0 && <p className="text-center py-4" style={{ color: 'var(--text2)' }}>Sin lotes activos</p>}
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );
@@ -444,7 +600,20 @@ function Purchases({ cfg }: { cfg: Record<string, any> }) {
       newPepUSD = form.precioUnitUSD;
     }
     
-    await dbAdd('compras', { productoId: producto.id!, productoNombre: producto.nombre, productoCodigo: producto.codigo, cantidad: form.cantidad, unidad: producto.unidad, precioUnitCUP: form.precioUnitCUP, precioUnitUSD: form.precioUnitUSD, totalCUP: form.cantidad * form.precioUnitCUP, totalUSD: form.cantidad * form.precioUnitUSD, nota: form.nota, proveedor: form.proveedor, destino: form.destino, fecha: Date.now(), creado: Date.now() });
+    // Crear lote de compra
+    const loteId = await dbAdd('lotesCompra', {
+      productoId: producto.id!,
+      cantidad: form.cantidad,
+      cantidadRestante: form.cantidad,
+      precioCompraCUP: form.precioUnitCUP,
+      precioCompraUSD: form.precioUnitUSD,
+      fecha: Date.now(),
+      proveedor: form.proveedor,
+      nota: form.nota,
+      destino: form.destino
+    } as LoteCompra);
+    
+    await dbAdd('compras', { productoId: producto.id!, productoNombre: producto.nombre, productoCodigo: producto.codigo, cantidad: form.cantidad, unidad: producto.unidad, precioUnitCUP: form.precioUnitCUP, precioUnitUSD: form.precioUnitUSD, totalCUP: form.cantidad * form.precioUnitCUP, totalUSD: form.cantidad * form.precioUnitUSD, nota: form.nota, proveedor: form.proveedor, destino: form.destino, loteId, fecha: Date.now(), creado: Date.now() });
     
     // Actualizar stock según destino
     let newStockTienda = producto.stockTienda || 0;
@@ -696,6 +865,11 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
     if (tienePagarTarde && !clienteId) { showToast('Seleccione cliente para "Pagar más tarde"', 'err'); return; }
     for (const item of cart) { const pr = productos.find(x => x.id === item.productoId); if (!pr || (pr.stockTienda || 0) < item.cantidad) { showToast(`Stock insuficiente en tienda: ${item.nombre}`, 'err'); return; } }
 
+    // Calcular costo real usando FIFO
+    const lotes = await dbGetAll<LoteCompra>('lotesCompra');
+    let costoTotalCUP = 0;
+    let costoTotalUSD = 0;
+    
     const venta: Venta = {
       num: genVentaNum(), fecha: Date.now(), items: cart, descuento,
       totalCUP, totalUSD, pagos, clienteId,
@@ -704,13 +878,38 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
       pagarMasTardeCUP: pagos.pagarCUP, pagarMasTardeUSD: pagos.pagarUSD
     };
     await dbAdd('ventas', venta);
-    // Descontar de stockTienda y actualizar stock total
+    
+    // Descontar de stockTienda y actualizar lotes usando FIFO
     for (const item of cart) { 
       const pr = productos.find(x => x.id === item.productoId)!; 
       const newStockTienda = (pr.stockTienda || 0) - item.cantidad;
       const newStockAlmacen = pr.stockAlmacen || 0;
+      
+      // Buscar lotes de este producto ordenados por fecha (FIFO)
+      const lotesProducto = lotes
+        .filter(l => l.productoId === item.productoId && l.cantidadRestante > 0)
+        .sort((a, b) => a.fecha - b.fecha);
+      
+      let cantidadRestante = item.cantidad;
+      for (const lote of lotesProducto) {
+        if (cantidadRestante <= 0) break;
+        
+        const usarDelLote = Math.min(cantidadRestante, lote.cantidadRestante);
+        costoTotalCUP += usarDelLote * lote.precioCompraCUP;
+        costoTotalUSD += usarDelLote * lote.precioCompraUSD;
+        
+        lote.cantidadRestante -= usarDelLote;
+        cantidadRestante -= usarDelLote;
+        
+        await dbPut('lotesCompra', lote);
+      }
+      
       await dbPut('productos', { ...pr, stock: newStockTienda + newStockAlmacen, stockTienda: newStockTienda, stockAlmacen: newStockAlmacen }); 
     }
+    
+    // Calcular ganancia real
+    const gananciaCUP = totalCUP - costoTotalCUP;
+    const gananciaUSD = totalUSD - costoTotalUSD;
     if (tienePagarTarde && clienteId) {
       const cl = clientes.find(c => c.id === clienteId)!;
       await dbPut('clientes', { ...cl, saldoCUP: Math.max(0, cl.saldoCUP + pagos.pagarCUP), saldoUSD: Math.max(0, cl.saldoUSD + pagos.pagarUSD), compras: cl.compras + 1, ultimaCompra: Date.now() });
@@ -719,7 +918,60 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
       await dbPut('clientes', { ...cl, compras: cl.compras + 1, ultimaCompra: Date.now() });
     }
 
-    setTicketVenta(venta); showToast(`Venta ${venta.num}`, 'ok');
+    setTicketVenta(venta); 
+    showToast(`Venta ${venta.num} | Ganancia: ${fmt(gananciaCUP)} CUP / ${fmt(gananciaUSD)} USD`, 'ok');
+    
+    // Crear o actualizar cierre diario
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const fechaHoy = hoy.getTime();
+    
+    const cierresDiarios = await dbGetAll<CierreDiario>('cierresDiarios');
+    let cierreHoy = cierresDiarios.find(c => c.fecha === fechaHoy);
+    
+    if (cierreHoy) {
+      // Actualizar cierre existente
+      cierreHoy.ventasIds.push(venta.id!);
+      cierreHoy.totalVentasCUP += totalCUP;
+      cierreHoy.totalVentasUSD += totalUSD;
+      cierreHoy.costoVentasCUP += costoTotalCUP;
+      cierreHoy.costoVentasUSD += costoTotalUSD;
+      cierreHoy.gananciaBrutaCUP += gananciaCUP;
+      cierreHoy.gananciaBrutaUSD += gananciaUSD;
+      cierreHoy.cajaCUP += pagos.efCUP + pagos.tfCUP;
+      cierreHoy.cajaUSD += pagos.efUSD + pagos.tfUSD;
+      cierreHoy.efectivoCUP += pagos.efCUP;
+      cierreHoy.efectivoUSD += pagos.efUSD;
+      cierreHoy.transferenciaCUP += pagos.tfCUP;
+      cierreHoy.transferenciaUSD += pagos.tfUSD;
+      cierreHoy.creditoCUP += pagos.pagarCUP;
+      cierreHoy.creditoUSD += pagos.pagarUSD;
+      await dbPut('cierresDiarios', cierreHoy);
+    } else {
+      // Crear nuevo cierre diario
+      const nuevoCierre: CierreDiario = {
+        fecha: fechaHoy,
+        ventasIds: [venta.id!],
+        totalVentasCUP: totalCUP,
+        totalVentasUSD: totalUSD,
+        costoVentasCUP: costoTotalCUP,
+        costoVentasUSD: costoTotalUSD,
+        gananciaBrutaCUP: gananciaCUP,
+        gananciaBrutaUSD: gananciaUSD,
+        cajaCUP: pagos.efCUP + pagos.tfCUP,
+        cajaUSD: pagos.efUSD + pagos.tfUSD,
+        efectivoCUP: pagos.efCUP,
+        efectivoUSD: pagos.efUSD,
+        transferenciaCUP: pagos.tfCUP,
+        transferenciaUSD: pagos.tfUSD,
+        creditoCUP: pagos.pagarCUP,
+        creditoUSD: pagos.pagarUSD,
+        tasaUsada: tasa,
+        creado: Date.now()
+      };
+      await dbAdd('cierresDiarios', nuevoCierre);
+    }
+    
     setCart([]); setDescuento(0); setPagos({ efCUP: 0, tfCUP: 0, pagarCUP: 0, efUSD: 0, tfUSD: 0, pagarUSD: 0 }); setClienteId(null); setCobrarModal(false); load();
   };
 
@@ -849,6 +1101,7 @@ function POS({ cfg }: { cfg: Record<string, any> }) {
 // ============ SALES ============
 function Sales({ cfg }: { cfg: Record<string, any> }) {
   const [ventas, setVentas] = useState<Venta[]>([]);
+  const [cierresDiarios, setCierresDiarios] = useState<CierreDiario[]>([]);
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -858,7 +1111,10 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
   const [detalle, setDetalle] = useState('');
   const tasa = cfg.tasa || 350;
 
-  const load = useCallback(async () => { setVentas(await dbGetAll<Venta>('ventas')); }, []);
+  const load = useCallback(async () => { 
+    setVentas(await dbGetAll<Venta>('ventas'));
+    setCierresDiarios(await dbGetAll<CierreDiario>('cierresDiarios'));
+  }, []);
   useEffect(() => { load(); }, [load]);
 
   let filtered = [...ventas].sort((a, b) => b.fecha - a.fecha);
@@ -868,12 +1124,26 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const ventasHoy = ventas.filter(v => v.fecha >= today.getTime() && v.estado === 'pagada');
-  const cajaCUPHoy = ventasHoy.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
-  const cajaUSDHoy = ventasHoy.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
-  const gananciaHoy = ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => {
+  
+  // Usar cierre diario si existe, sino calcular
+  const cierreHoy = cierresDiarios.find(c => c.fecha === today.getTime());
+  const cajaCUPHoy = cierreHoy?.cajaCUP || ventasHoy.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
+  const cajaUSDHoy = cierreHoy?.cajaUSD || ventasHoy.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
+  const gananciaHoyCUP = cierreHoy?.gananciaBrutaCUP || ventasHoy.reduce((s, v) => s + v.items.reduce((si, it) => {
     const precioConDescuento = it.precioCUP * (1 - v.descuento / 100);
     return si + (precioConDescuento - it.pep) * it.cantidad;
   }, 0), 0);
+  const gananciaHoyUSD = cierreHoy?.gananciaBrutaUSD || 0;
+  const inversionHoyCUP = cierreHoy?.costoVentasCUP || 0;
+  const inversionHoyUSD = cierreHoy?.costoVentasUSD || 0;
+  
+  // Desglose de pagos hoy
+  const efectivoCUP = cierreHoy?.efectivoCUP || ventasHoy.reduce((s, v) => s + v.pagos.efCUP, 0);
+  const efectivoUSD = cierreHoy?.efectivoUSD || ventasHoy.reduce((s, v) => s + v.pagos.efUSD, 0);
+  const transferenciaCUP = cierreHoy?.transferenciaCUP || ventasHoy.reduce((s, v) => s + v.pagos.tfCUP, 0);
+  const transferenciaUSD = cierreHoy?.transferenciaUSD || ventasHoy.reduce((s, v) => s + v.pagos.tfUSD, 0);
+  const creditoCUP = cierreHoy?.creditoCUP || ventasHoy.reduce((s, v) => s + v.pagos.pagarCUP, 0);
+  const creditoUSD = cierreHoy?.creditoUSD || ventasHoy.reduce((s, v) => s + v.pagos.pagarUSD, 0);
 
   // Totales del rango de fechas
   const totalRangoCUP = filtered.filter(v => v.estado === 'pagada').reduce((s, v) => s + v.totalCUP, 0);
@@ -916,10 +1186,33 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
         </div>
       </div>
 
-      <div className="grid-3 mb-4">
+      <div className="grid-4 mb-4">
         <div className="kpi"><div className="kpi-label">Ventas Hoy</div><div className="kpi-value">{ventasHoy.length}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoy)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(gananciaHoyUSD)} USD</p></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión Hoy</div><div className="kpi-value">{fmt(inversionHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionHoyUSD)} USD</p></div>
         <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Total Rango</div><div className="kpi-value">{fmt(totalRangoCUP)}</div><p className="equivalent">USD: {fmt(totalRangoUSD)}</p></div>
+      </div>
+      
+      {/* Desglose de Pagos Hoy */}
+      <div className="card p-4 mb-4">
+        <h3 className="font-semibold mb-3">💳 Desglose de Pagos Hoy</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
+            <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
+            <p className="text-sm">{fmt(efectivoUSD)} USD</p>
+          </div>
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
+            <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
+            <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
+          </div>
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
+            <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
+            <p className="text-sm">{fmt(creditoUSD)} USD</p>
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3 mb-4">
@@ -941,11 +1234,83 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
   );
 }
 
+// ============ DAILY CLOSE ============
+function DailyClose({ cfg }: { cfg: Record<string, any> }) {
+  const [cierresDiarios, setCierresDiarios] = useState<CierreDiario[]>([]);
+  const tasa = cfg.tasa || 350;
+
+  const load = useCallback(async () => {
+    setCierresDiarios(await dbGetAll<CierreDiario>('cierresDiarios'));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div>
+      <div className="card p-4 mb-4" style={{ borderLeft: '4px solid var(--primary)' }}>
+        <p className="text-sm font-semibold">📆 Histórico de Cierres Diarios</p>
+        <p className="text-xs" style={{ color: 'var(--text2)' }}>Los cierres se generan automáticamente al realizar ventas</p>
+      </div>
+
+      <div className="card table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Ventas</th>
+              <th>Total CUP</th>
+              <th>Total USD</th>
+              <th>Inversión</th>
+              <th>Ganancia CUP</th>
+              <th>Ganancia USD</th>
+              <th>Efectivo</th>
+              <th>Transferencia</th>
+              <th>Crédito</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...cierresDiarios].sort((a, b) => b.fecha - a.fecha).map(c => (
+              <tr key={c.id}>
+                <td className="text-xs">{fmtDate(c.fecha)}</td>
+                <td>{c.ventasIds.length}</td>
+                <td className="font-semibold">{fmt(c.totalVentasCUP)}</td>
+                <td>{fmt(c.totalVentasUSD)}</td>
+                <td style={{ color: 'var(--err)' }}>{fmt(c.costoVentasCUP)}</td>
+                <td style={{ color: 'var(--ok)' }} className="font-bold">{fmt(c.gananciaBrutaCUP)}</td>
+                <td>{fmt(c.gananciaBrutaUSD)}</td>
+                <td>
+                  <div className="text-xs">
+                    <div>{fmt(c.efectivoCUP)} CUP</div>
+                    <div>{fmt(c.efectivoUSD)} USD</div>
+                  </div>
+                </td>
+                <td>
+                  <div className="text-xs">
+                    <div>{fmt(c.transferenciaCUP)} CUP</div>
+                    <div>{fmt(c.transferenciaUSD)} USD</div>
+                  </div>
+                </td>
+                <td>
+                  <div className="text-xs">
+                    <div>{fmt(c.creditoCUP)} CUP</div>
+                    <div>{fmt(c.creditoUSD)} USD</div>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {cierresDiarios.length === 0 && <p className="text-center py-8" style={{ color: 'var(--text2)' }}>Sin cierres diarios registrados</p>}
+    </div>
+  );
+}
+
 // ============ WEEKLY CLOSE ============
 function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [cierresDiarios, setCierresDiarios] = useState<CierreDiario[]>([]);
   const [guardado, setGuardado] = useState(false);
   const tasa = cfg.tasa || 350;
   const pctDep = cfg.pctDependienta || 0;
@@ -954,20 +1319,30 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
     setVentas(await dbGetAll<Venta>('ventas'));
     setProductos(await dbGetAll<Producto>('productos'));
     setGastos(await dbGetAll<Gasto>('gastos'));
+    setCierresDiarios(await dbGetAll<CierreDiario>('cierresDiarios'));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const week = getWeekRange();
   const ventasSemana = ventas.filter(v => v.fecha >= week.start && v.fecha <= week.end && v.estado === 'pagada');
   const gastosSemana = gastos.filter(g => g.fecha >= week.start && g.fecha <= week.end);
+  
+  // Cierres diarios de la semana
+  const cierresSemana = cierresDiarios.filter(c => c.fecha >= week.start && c.fecha <= week.end);
 
-  const totalCUP = ventasSemana.reduce((s, v) => s + v.totalCUP, 0);
-  const totalUSD = ventasSemana.reduce((s, v) => s + v.totalUSD, 0);
-  // Ganancia = (Precio venta con descuento - PEP) × cantidad
-  const ganancia = ventasSemana.reduce((s, v) => s + v.items.reduce((si, it) => {
+  const totalCUP = cierresSemana.reduce((s, c) => s + c.totalVentasCUP, 0) || ventasSemana.reduce((s, v) => s + v.totalCUP, 0);
+  const totalUSD = cierresSemana.reduce((s, c) => s + c.totalVentasUSD, 0) || ventasSemana.reduce((s, v) => s + v.totalUSD, 0);
+  
+  // Ganancia real usando cierres diarios (costo real FIFO)
+  const ganancia = cierresSemana.reduce((s, c) => s + c.gananciaBrutaCUP, 0) || ventasSemana.reduce((s, v) => s + v.items.reduce((si, it) => {
     const precioConDescuento = it.precioCUP * (1 - v.descuento / 100);
     return si + (precioConDescuento - it.pep) * it.cantidad;
   }, 0), 0);
+  const gananciaUSD = cierresSemana.reduce((s, c) => s + c.gananciaBrutaUSD, 0) || 0;
+  
+  const inversionSemana = cierresSemana.reduce((s, c) => s + c.costoVentasCUP, 0) || 0;
+  const inversionSemanaUSD = cierresSemana.reduce((s, c) => s + c.costoVentasUSD, 0) || 0;
+  
   const gastosTotal = gastosSemana.reduce((s, g) => s + g.montoCUP, 0);
   const utilidad = ganancia - gastosTotal;
   const inversionCUP = productos.reduce((s, p) => s + (p.stock * p.pep), 0);
@@ -978,8 +1353,16 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
   const dependienta = accionista2 * (pctDep / 100);
   const accionista2Neto = accionista2 - dependienta;
 
-  const cajaCUP = ventasSemana.reduce((s, v) => s + v.pagos.efCUP + v.pagos.tfCUP, 0);
-  const cajaUSD = ventasSemana.reduce((s, v) => s + v.pagos.efUSD + v.pagos.tfUSD, 0);
+  // Desglose de pagos de la semana
+  const efectivoCUP = cierresSemana.reduce((s, c) => s + c.efectivoCUP, 0) || ventasSemana.reduce((s, v) => s + v.pagos.efCUP, 0);
+  const efectivoUSD = cierresSemana.reduce((s, c) => s + c.efectivoUSD, 0) || ventasSemana.reduce((s, v) => s + v.pagos.efUSD, 0);
+  const transferenciaCUP = cierresSemana.reduce((s, c) => s + c.transferenciaCUP, 0) || ventasSemana.reduce((s, v) => s + v.pagos.tfCUP, 0);
+  const transferenciaUSD = cierresSemana.reduce((s, c) => s + c.transferenciaUSD, 0) || ventasSemana.reduce((s, v) => s + v.pagos.tfUSD, 0);
+  const creditoCUP = cierresSemana.reduce((s, c) => s + c.creditoCUP, 0) || ventasSemana.reduce((s, v) => s + v.pagos.pagarCUP, 0);
+  const creditoUSD = cierresSemana.reduce((s, c) => s + c.creditoUSD, 0) || ventasSemana.reduce((s, v) => s + v.pagos.pagarUSD, 0);
+
+  const cajaCUP = efectivoCUP + transferenciaCUP;
+  const cajaUSD = efectivoUSD + transferenciaUSD;
 
   const guardarCierre = async () => {
     const cierre: CierreSemanal = {
@@ -1008,14 +1391,36 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
       <div className="grid-4 mb-6">
         <div className="kpi"><div className="kpi-label">Venta Total CUP</div><div className="kpi-value">{fmt(totalCUP)}</div><p className="equivalent">≈ {fmt(toUSD(totalCUP, tasa))} USD</p></div>
         <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Venta Total USD</div><div className="kpi-value">{fmt(totalUSD)}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia Bruta</div><div className="kpi-value">{fmt(ganancia)}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Gastos</div><div className="kpi-value">{fmt(gastosTotal)}</div></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Bruta</div><div className="kpi-value">{fmt(ganancia)} CUP</div><p className="equivalent">≈ {fmt(gananciaUSD)} USD</p></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión (Costo)</div><div className="kpi-value">{fmt(inversionSemana)} CUP</div><p className="equivalent">≈ {fmt(inversionSemanaUSD)} USD</p></div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">💰 Inversión Inventario</div><div className="kpi-value">{fmt(inversionCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionUSD)} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">💰 Ganancia Neta</div><div className="kpi-value">{fmt(utilidad)} CUP</div><p className="equivalent">(Ganancia - Gastos)</p></div>
+        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">💰 Inventario Actual</div><div className="kpi-value">{fmt(inversionCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionUSD)} USD</p></div>
+        <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">💰 Ganancia Neta</div><div className="kpi-value">{fmt(utilidad)} CUP</div><p className="equivalent">(Ganancia - Gastos {fmt(gastosTotal)})</p></div>
         <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">💵 Caja Semanal</div><div className="text-sm font-bold">{fmt(cajaCUP)} CUP</div><div className="text-sm font-bold">{fmt(cajaUSD)} USD</div></div>
+      </div>
+      
+      {/* Desglose de Pagos de la Semana */}
+      <div className="card p-4 mb-6">
+        <h3 className="font-semibold mb-3">💳 Desglose de Pagos de la Semana</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
+            <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
+            <p className="text-sm">{fmt(efectivoUSD)} USD</p>
+          </div>
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
+            <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
+            <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
+          </div>
+          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+            <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
+            <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
+            <p className="text-sm">{fmt(creditoUSD)} USD</p>
+          </div>
+        </div>
       </div>
 
       <div className="card p-6 mb-6">
@@ -1024,16 +1429,19 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
           <div className="p-4 rounded" style={{ background: 'var(--bg3)' }}>
             <p className="text-sm font-semibold" style={{ color: 'var(--primary)' }}>👤 {cfg.accionista1Nombre || 'Accionista 1'} (50%)</p>
             <p className="text-xl font-bold">{fmt(accionista1)} CUP</p>
+            <p className="text-xs" style={{ color: 'var(--text2)' }}>≈ {fmt(toUSD(accionista1, tasa))} USD</p>
           </div>
           <div className="p-4 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-sm font-semibold" style={{ color: 'var(--ok)' }}>👤 {cfg.accionista2Nombre || 'Accionista 2'} (50%)</p>
-            <p className="text-xl font-bold">{fmt(accionista2)} CUP</p>
-            {pctDep > 0 && <p className="text-xs" style={{ color: 'var(--err)' }}>- {cfg.dependientaNombre || 'Dependienta'}: {fmt(dependienta)}<br/>Neto: {fmt(accionista2Neto)}</p>}
+            <p className="text-sm font-semibold" style={{ color: 'var(--ok)' }}>👤 {cfg.accionista2Nombre || 'Accionista 2'} - NETO</p>
+            <p className="text-xl font-bold" style={{ color: 'var(--ok)' }}>{fmt(accionista2Neto)} CUP</p>
+            {pctDep > 0 && <p className="text-xs" style={{ color: 'var(--text2)' }}>(Bruto: {fmt(accionista2)} - Dependienta: {fmt(dependienta)})</p>}
+            <p className="text-xs" style={{ color: 'var(--text2)' }}>≈ {fmt(toUSD(accionista2Neto, tasa))} USD</p>
           </div>
           {pctDep > 0 && (
             <div className="p-4 rounded" style={{ background: 'var(--bg3)' }}>
               <p className="text-sm font-semibold" style={{ color: 'var(--warn)' }}>💁 {cfg.dependientaNombre || 'Dependienta'} ({pctDep}% del Acc. 2)</p>
               <p className="text-xl font-bold">{fmt(dependienta)} CUP</p>
+              <p className="text-xs" style={{ color: 'var(--text2)' }}>≈ {fmt(toUSD(dependienta, tasa))} USD</p>
             </div>
           )}
         </div>
