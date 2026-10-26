@@ -167,6 +167,15 @@ const DEFAULT_CONFIG: Record<string, any> = {
   categorias: ['Herramientas','Tornillería','Plomería','Electricidad','Pintura','Construcción','Jardín','Otros'],
   units: ['Unidad','Caja','Metro','Kilo','Litro','Paquete','Rollos','Juego'],
   cats: ['Herramientas','Tornillería','Plomería','Electricidad','Pintura','Construcción','Jardín','Otros'],
+  // Visibilidad de métricas
+  mostrarCajaCUP: true,
+  mostrarCajaUSD: true,
+  mostrarGanancia: true,
+  mostrarInversion: true,
+  mostrarInventarioPorUbicacion: true,
+  mostrarDesglosePagos: true,
+  mostrarCierreDia: true,
+  mostrarDistribucionGanancias: true,
 };
 
 let db: IDBDatabase | null = null;

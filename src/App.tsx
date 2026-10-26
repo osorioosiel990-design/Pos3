@@ -201,97 +201,117 @@ function Dashboard({ cfg, setPage }: { cfg: Record<string, any>; setPage: (p: Pa
 
   return (
     <div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="card p-4" style={{ borderLeft: '4px solid var(--ok)' }}>
-          <h3 className="font-bold text-sm mb-2" style={{ color: 'var(--ok)' }}>💵 CAJA CUP HOY</h3>
-          <p className="text-2xl font-bold">{fmt(cajaCUP)} CUP</p>
-          <p className="equivalent">≈ {fmt(toUSD(cajaCUP, tasa))} USD</p>
+      {(cfg.mostrarCajaCUP !== false || cfg.mostrarCajaUSD !== false) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          {cfg.mostrarCajaCUP !== false && (
+            <div className="card p-4" style={{ borderLeft: '4px solid var(--ok)' }}>
+              <h3 className="font-bold text-sm mb-2" style={{ color: 'var(--ok)' }}>💵 CAJA CUP HOY</h3>
+              <p className="text-2xl font-bold">{fmt(cajaCUP)} CUP</p>
+              <p className="equivalent">≈ {fmt(toUSD(cajaCUP, tasa))} USD</p>
+            </div>
+          )}
+          {cfg.mostrarCajaUSD !== false && (
+            <div className="card p-4" style={{ borderLeft: '4px solid var(--info)' }}>
+              <h3 className="font-bold text-sm mb-2" style={{ color: 'var(--info)' }}>💵 CAJA USD HOY</h3>
+              <p className="text-2xl font-bold">{fmt(cajaUSD)} USD</p>
+              <p className="equivalent">≈ {fmt(toCUP(cajaUSD, tasa))} CUP</p>
+            </div>
+          )}
         </div>
-        <div className="card p-4" style={{ borderLeft: '4px solid var(--info)' }}>
-          <h3 className="font-bold text-sm mb-2" style={{ color: 'var(--info)' }}>💵 CAJA USD HOY</h3>
-          <p className="text-2xl font-bold">{fmt(cajaUSD)} USD</p>
-          <p className="equivalent">≈ {fmt(toCUP(cajaUSD, tasa))} CUP</p>
-        </div>
-      </div>
+      )}
 
       <div className="grid-4 mb-6">
         <div className="kpi"><div className="kpi-label">Ventas Hoy</div><div className="kpi-value">{ventasHoy.length}</div><p className="equivalent">CUP: {fmt(totalHoyCUP)} | USD: {fmt(totalHoyUSD)}</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(gananciaHoyUSD)} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión Hoy (Costo)</div><div className="kpi-value">{fmt(inversionHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionHoyUSD)} USD</p></div>
+        {cfg.mostrarGanancia !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(gananciaHoyUSD)} USD</p></div>
+        )}
+        {cfg.mostrarInversion !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión Hoy (Costo)</div><div className="kpi-value">{fmt(inversionHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionHoyUSD)} USD</p></div>
+        )}
         <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Stock Bajo / Agotados</div><div className="kpi-value">{stockBajo.length + agotados.length}</div></div>
       </div>
       
       {/* Desglose de Inventario por Ubicación */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}>
-          <div className="kpi-label">🏪 Inventario en Tienda</div>
-          <div className="kpi-value">{fmt(inversionTiendaCUP)} CUP</div>
-          <p className="equivalent">Disponible para venta</p>
+      {cfg.mostrarInventarioPorUbicacion !== false && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}>
+            <div className="kpi-label">🏪 Inventario en Tienda</div>
+            <div className="kpi-value">{fmt(inversionTiendaCUP)} CUP</div>
+            <p className="equivalent">Disponible para venta</p>
+          </div>
+          <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}>
+            <div className="kpi-label">📦 Inventario en Almacén</div>
+            <div className="kpi-value">{fmt(inversionAlmacenCUP)} CUP</div>
+            <p className="equivalent">Requiere transferencia</p>
+          </div>
+          <div className="kpi" style={{ borderLeftColor: 'var(--primary)' }}>
+            <div className="kpi-label">💰 Inversión Total</div>
+            <div className="kpi-value">{fmt(inversionTotalCUP)} CUP</div>
+            <p className="equivalent">≈ {fmt(inversionTotalUSD)} USD</p>
+          </div>
         </div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}>
-          <div className="kpi-label">📦 Inventario en Almacén</div>
-          <div className="kpi-value">{fmt(inversionAlmacenCUP)} CUP</div>
-          <p className="equivalent">Requiere transferencia</p>
-        </div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--primary)' }}>
-          <div className="kpi-label">💰 Inversión Total</div>
-          <div className="kpi-value">{fmt(inversionTotalCUP)} CUP</div>
-          <p className="equivalent">≈ {fmt(inversionTotalUSD)} USD</p>
-        </div>
-      </div>
+      )}
       
       {/* Desglose de Pagos Hoy */}
-      <div className="card p-4 mb-6">
-        <h3 className="font-semibold mb-3">💳 Desglose de Pagos Hoy</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
-            <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
-            <p className="text-sm">{fmt(efectivoUSD)} USD</p>
-          </div>
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
-            <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
-            <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
-          </div>
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
-            <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
-            <p className="text-sm">{fmt(creditoUSD)} USD</p>
+      {cfg.mostrarDesglosePagos !== false && (
+        <div className="card p-4 mb-6">
+          <h3 className="font-semibold mb-3">💳 Desglose de Pagos Hoy</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
+              <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
+              <p className="text-sm">{fmt(efectivoUSD)} USD</p>
+            </div>
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
+              <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
+              <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
+            </div>
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
+              <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
+              <p className="text-sm">{fmt(creditoUSD)} USD</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Gráficos simplificados - se pueden agregar después */}
 
       {/* Cierre del Día */}
-      <div className="card p-4 mb-6">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="font-semibold">📊 Cierre del Día</h3>
-          <span className="text-xs" style={{ color: 'var(--text2)' }}>{fmtDate(today.getTime())}</span>
+      {cfg.mostrarCierreDia !== false && (
+        <div className="card p-4 mb-6">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold">📊 Cierre del Día</h3>
+            <span className="text-xs" style={{ color: 'var(--text2)' }}>{fmtDate(today.getTime())}</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs" style={{ color: 'var(--text2)' }}>Total Ventas</p>
+              <p className="text-lg font-bold">{fmt(totalHoyCUP)} CUP</p>
+              <p className="text-xs">{fmt(totalHoyUSD)} USD</p>
+            </div>
+            {cfg.mostrarInversion !== false && (
+              <div>
+                <p className="text-xs" style={{ color: 'var(--text2)' }}>Inversión (Costo)</p>
+                <p className="text-lg font-bold" style={{ color: 'var(--err)' }}>{fmt(inversionHoyCUP)} CUP</p>
+                <p className="text-xs">{fmt(inversionHoyUSD)} USD</p>
+              </div>
+            )}
+            {cfg.mostrarGanancia !== false && (
+              <div>
+                <p className="text-xs" style={{ color: 'var(--text2)' }}>Ganancia</p>
+                <p className="text-lg font-bold" style={{ color: 'var(--ok)' }}>{fmt(gananciaHoyCUP)} CUP</p>
+                <p className="text-xs">{fmt(gananciaHoyUSD)} USD</p>
+              </div>
+            )}
+            <div>
+              <p className="text-xs" style={{ color: 'var(--text2)' }}>Ventas Realizadas</p>
+              <p className="text-lg font-bold">{ventasHoy.length}</p>
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p className="text-xs" style={{ color: 'var(--text2)' }}>Total Ventas</p>
-            <p className="text-lg font-bold">{fmt(totalHoyCUP)} CUP</p>
-            <p className="text-xs">{fmt(totalHoyUSD)} USD</p>
-          </div>
-          <div>
-            <p className="text-xs" style={{ color: 'var(--text2)' }}>Inversión (Costo)</p>
-            <p className="text-lg font-bold" style={{ color: 'var(--err)' }}>{fmt(inversionHoyCUP)} CUP</p>
-            <p className="text-xs">{fmt(inversionHoyUSD)} USD</p>
-          </div>
-          <div>
-            <p className="text-xs" style={{ color: 'var(--text2)' }}>Ganancia</p>
-            <p className="text-lg font-bold" style={{ color: 'var(--ok)' }}>{fmt(gananciaHoyCUP)} CUP</p>
-            <p className="text-xs">{fmt(gananciaHoyUSD)} USD</p>
-          </div>
-          <div>
-            <p className="text-xs" style={{ color: 'var(--text2)' }}>Ventas Realizadas</p>
-            <p className="text-lg font-bold">{ventasHoy.length}</p>
-          </div>
-        </div>
-      </div>
+      )}
       
       <div className="card p-4">
         <h3 className="font-semibold mb-3">Alertas</h3>
@@ -1173,47 +1193,59 @@ function Sales({ cfg }: { cfg: Record<string, any> }) {
 
   return (
     <div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <div className="card p-4" style={{ borderLeft: '4px solid var(--ok)' }}>
-          <p className="kpi-label">💵 Caja CUP Hoy</p>
-          <p className="text-xl font-bold">{fmt(cajaCUPHoy)} CUP</p>
-          <p className="equivalent">≈ {fmt(toUSD(cajaCUPHoy, tasa))} USD</p>
+      {(cfg.mostrarCajaCUP !== false || cfg.mostrarCajaUSD !== false) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {cfg.mostrarCajaCUP !== false && (
+            <div className="card p-4" style={{ borderLeft: '4px solid var(--ok)' }}>
+              <p className="kpi-label">💵 Caja CUP Hoy</p>
+              <p className="text-xl font-bold">{fmt(cajaCUPHoy)} CUP</p>
+              <p className="equivalent">≈ {fmt(toUSD(cajaCUPHoy, tasa))} USD</p>
+            </div>
+          )}
+          {cfg.mostrarCajaUSD !== false && (
+            <div className="card p-4" style={{ borderLeft: '4px solid var(--info)' }}>
+              <p className="kpi-label">💵 Caja USD Hoy</p>
+              <p className="text-xl font-bold">{fmt(cajaUSDHoy)} USD</p>
+              <p className="equivalent">≈ {fmt(toCUP(cajaUSDHoy, tasa))} CUP</p>
+            </div>
+          )}
         </div>
-        <div className="card p-4" style={{ borderLeft: '4px solid var(--info)' }}>
-          <p className="kpi-label">💵 Caja USD Hoy</p>
-          <p className="text-xl font-bold">{fmt(cajaUSDHoy)} USD</p>
-          <p className="equivalent">≈ {fmt(toCUP(cajaUSDHoy, tasa))} CUP</p>
-        </div>
-      </div>
+      )}
 
       <div className="grid-4 mb-4">
         <div className="kpi"><div className="kpi-label">Ventas Hoy</div><div className="kpi-value">{ventasHoy.length}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(gananciaHoyUSD)} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión Hoy</div><div className="kpi-value">{fmt(inversionHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionHoyUSD)} USD</p></div>
+        {cfg.mostrarGanancia !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Hoy</div><div className="kpi-value">{fmt(gananciaHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(gananciaHoyUSD)} USD</p></div>
+        )}
+        {cfg.mostrarInversion !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión Hoy</div><div className="kpi-value">{fmt(inversionHoyCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionHoyUSD)} USD</p></div>
+        )}
         <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Total Rango</div><div className="kpi-value">{fmt(totalRangoCUP)}</div><p className="equivalent">USD: {fmt(totalRangoUSD)}</p></div>
       </div>
       
       {/* Desglose de Pagos Hoy */}
-      <div className="card p-4 mb-4">
-        <h3 className="font-semibold mb-3">💳 Desglose de Pagos Hoy</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
-            <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
-            <p className="text-sm">{fmt(efectivoUSD)} USD</p>
-          </div>
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
-            <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
-            <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
-          </div>
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
-            <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
-            <p className="text-sm">{fmt(creditoUSD)} USD</p>
+      {cfg.mostrarDesglosePagos !== false && (
+        <div className="card p-4 mb-4">
+          <h3 className="font-semibold mb-3">💳 Desglose de Pagos Hoy</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
+              <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
+              <p className="text-sm">{fmt(efectivoUSD)} USD</p>
+            </div>
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
+              <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
+              <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
+            </div>
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
+              <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
+              <p className="text-sm">{fmt(creditoUSD)} USD</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="flex flex-wrap gap-3 mb-4">
         <input className="input max-w-xs" placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -1391,40 +1423,53 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
       <div className="grid-4 mb-6">
         <div className="kpi"><div className="kpi-label">Venta Total CUP</div><div className="kpi-value">{fmt(totalCUP)}</div><p className="equivalent">≈ {fmt(toUSD(totalCUP, tasa))} USD</p></div>
         <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Venta Total USD</div><div className="kpi-value">{fmt(totalUSD)}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Bruta</div><div className="kpi-value">{fmt(ganancia)} CUP</div><p className="equivalent">≈ {fmt(gananciaUSD)} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión (Costo)</div><div className="kpi-value">{fmt(inversionSemana)} CUP</div><p className="equivalent">≈ {fmt(inversionSemanaUSD)} USD</p></div>
+        {cfg.mostrarGanancia !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💰 Ganancia Bruta</div><div className="kpi-value">{fmt(ganancia)} CUP</div><p className="equivalent">≈ {fmt(gananciaUSD)} USD</p></div>
+        )}
+        {cfg.mostrarInversion !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">💸 Inversión (Costo)</div><div className="kpi-value">{fmt(inversionSemana)} CUP</div><p className="equivalent">≈ {fmt(inversionSemanaUSD)} USD</p></div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">💰 Inventario Actual</div><div className="kpi-value">{fmt(inversionCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionUSD)} USD</p></div>
-        <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">💰 Ganancia Neta</div><div className="kpi-value">{fmt(utilidad)} CUP</div><p className="equivalent">(Ganancia - Gastos {fmt(gastosTotal)})</p></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">💵 Caja Semanal</div><div className="text-sm font-bold">{fmt(cajaCUP)} CUP</div><div className="text-sm font-bold">{fmt(cajaUSD)} USD</div></div>
+        {cfg.mostrarInventarioPorUbicacion !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">💰 Inventario Actual</div><div className="kpi-value">{fmt(inversionCUP)} CUP</div><p className="equivalent">≈ {fmt(inversionUSD)} USD</p></div>
+        )}
+        {cfg.mostrarGanancia !== false && (
+          <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">💰 Ganancia Neta</div><div className="kpi-value">{fmt(utilidad)} CUP</div><p className="equivalent">(Ganancia - Gastos {fmt(gastosTotal)})</p></div>
+        )}
+        {(cfg.mostrarCajaCUP !== false || cfg.mostrarCajaUSD !== false) && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">💵 Caja Semanal</div><div className="text-sm font-bold">{fmt(cajaCUP)} CUP</div><div className="text-sm font-bold">{fmt(cajaUSD)} USD</div></div>
+        )}
       </div>
       
       {/* Desglose de Pagos de la Semana */}
-      <div className="card p-4 mb-6">
-        <h3 className="font-semibold mb-3">💳 Desglose de Pagos de la Semana</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
-            <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
-            <p className="text-sm">{fmt(efectivoUSD)} USD</p>
-          </div>
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
-            <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
-            <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
-          </div>
-          <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
-            <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
-            <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
-            <p className="text-sm">{fmt(creditoUSD)} USD</p>
+      {cfg.mostrarDesglosePagos !== false && (
+        <div className="card p-4 mb-6">
+          <h3 className="font-semibold mb-3">💳 Desglose de Pagos de la Semana</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">💵 Efectivo</p>
+              <p className="text-lg font-bold">{fmt(efectivoCUP)} CUP</p>
+              <p className="text-sm">{fmt(efectivoUSD)} USD</p>
+            </div>
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">💳 Transferencia</p>
+              <p className="text-lg font-bold">{fmt(transferenciaCUP)} CUP</p>
+              <p className="text-sm">{fmt(transferenciaUSD)} USD</p>
+            </div>
+            <div className="p-3 rounded" style={{ background: 'var(--bg3)' }}>
+              <p className="text-xs font-semibold mb-2">📝 Crédito (CxC)</p>
+              <p className="text-lg font-bold">{fmt(creditoCUP)} CUP</p>
+              <p className="text-sm">{fmt(creditoUSD)} USD</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="card p-6 mb-6">
-        <h3 className="font-bold text-lg mb-4">📊 Distribución de Ganancias</h3>
+      {cfg.mostrarDistribucionGanancias !== false && (
+        <div className="card p-6 mb-6">
+          <h3 className="font-bold text-lg mb-4">📊 Distribución de Ganancias</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 rounded" style={{ background: 'var(--bg3)' }}>
             <p className="text-sm font-semibold" style={{ color: 'var(--primary)' }}>👤 {cfg.accionista1Nombre || 'Accionista 1'} (50%)</p>
@@ -1446,6 +1491,7 @@ function WeeklyClose({ cfg }: { cfg: Record<string, any> }) {
           )}
         </div>
       </div>
+      )}
 
       <div className="flex justify-end">
         <button className="btn btn-primary" onClick={guardarCierre} disabled={guardado}>{guardado ? '✓ Guardado' : '💾 Guardar Cierre en Histórico'}</button>
@@ -1613,15 +1659,25 @@ function Metrics({ cfg }: { cfg: Record<string, any> }) {
       <div className="grid-4 mb-6">
         <div className="kpi"><div className="kpi-label">Venta CUP</div><div className="kpi-value">{fmt(totalCUP)}</div></div>
         <div className="kpi" style={{ borderLeftColor: 'var(--info)' }}><div className="kpi-label">Venta USD</div><div className="kpi-value">{fmt(totalUSD)}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia</div><div className="kpi-value">{fmt(ganancia)}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Inversión Inv.</div><div className="kpi-value">{fmt(inversion)}</div><p className="equivalent">≈ {fmt(toUSD(inversion, tasa))} USD</p></div>
+        {cfg.mostrarGanancia !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">Ganancia</div><div className="kpi-value">{fmt(ganancia)}</div></div>
+        )}
+        {cfg.mostrarInversion !== false && (
+          <div className="kpi" style={{ borderLeftColor: 'var(--err)' }}><div className="kpi-label">Inversión Inv.</div><div className="kpi-value">{fmt(inversion)}</div><p className="equivalent">≈ {fmt(toUSD(inversion, tasa))} USD</p></div>
+        )}
       </div>
       <div className="grid-3 mb-6">
-        <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">Ganancia Neta</div><div className="kpi-value">{fmt(utilidad)}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--primary)' }}><div className="kpi-label">{cfg.accionista1Nombre || 'Accionista 1'} (50%)</div><div className="kpi-value">{fmt(accionista1)}</div></div>
-        <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">{cfg.accionista2Nombre || 'Accionista 2'} (50%)</div><div className="kpi-value">{fmt(accionista2)}</div>{pctDep > 0 && <p className="text-xs">Dep: -{fmt(dependienta)} | Neto: {fmt(accionista2 - dependienta)}</p>}</div>
+        {cfg.mostrarGanancia !== false && (
+          <div className="kpi" style={{ borderLeftColor: utilidad >= 0 ? 'var(--ok)' : 'var(--err)' }}><div className="kpi-label">Ganancia Neta</div><div className="kpi-value">{fmt(utilidad)}</div></div>
+        )}
+        {cfg.mostrarDistribucionGanancias !== false && (
+          <>
+            <div className="kpi" style={{ borderLeftColor: 'var(--primary)' }}><div className="kpi-label">{cfg.accionista1Nombre || 'Accionista 1'} (50%)</div><div className="kpi-value">{fmt(accionista1)}</div></div>
+            <div className="kpi" style={{ borderLeftColor: 'var(--ok)' }}><div className="kpi-label">{cfg.accionista2Nombre || 'Accionista 2'} (50%)</div><div className="kpi-value">{fmt(accionista2)}</div>{pctDep > 0 && <p className="text-xs">Dep: -{fmt(dependienta)} | Neto: {fmt(accionista2 - dependienta)}</p>}</div>
+          </>
+        )}
       </div>
-      {pctDep > 0 && (<div className="kpi mb-6" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💁 {cfg.dependientaNombre || 'Dependienta'} ({pctDep}% del Acc. 2)</div><div className="kpi-value">{fmt(dependienta)} CUP</div></div>)}
+      {cfg.mostrarDistribucionGanancias !== false && pctDep > 0 && (<div className="kpi mb-6" style={{ borderLeftColor: 'var(--warn)' }}><div className="kpi-label">💁 {cfg.dependientaNombre || 'Dependienta'} ({pctDep}% del Acc. 2)</div><div className="kpi-value">{fmt(dependienta)} CUP</div></div>)}
     </div>
   );
 }
@@ -1733,6 +1789,16 @@ function Settings({ cfg, refreshCfg }: { cfg: Record<string, any>; refreshCfg: (
   const [mostrarEquiv, setMostrarEquiv] = useState(cfg.mostrarEquivalentes !== false);
   const [showTasas, setShowTasas] = useState(false);
   const [tasas, setTasas] = useState<Tasa[]>([]);
+  
+  // Visibilidad de métricas
+  const [mostrarCajaCUP, setMostrarCajaCUP] = useState(cfg.mostrarCajaCUP !== false);
+  const [mostrarCajaUSD, setMostrarCajaUSD] = useState(cfg.mostrarCajaUSD !== false);
+  const [mostrarGanancia, setMostrarGanancia] = useState(cfg.mostrarGanancia !== false);
+  const [mostrarInversion, setMostrarInversion] = useState(cfg.mostrarInversion !== false);
+  const [mostrarInventarioPorUbicacion, setMostrarInventarioPorUbicacion] = useState(cfg.mostrarInventarioPorUbicacion !== false);
+  const [mostrarDesglosePagos, setMostrarDesglosePagos] = useState(cfg.mostrarDesglosePagos !== false);
+  const [mostrarCierreDia, setMostrarCierreDia] = useState(cfg.mostrarCierreDia !== false);
+  const [mostrarDistribucionGanancias, setMostrarDistribucionGanancias] = useState(cfg.mostrarDistribucionGanancias !== false);
 
   useEffect(() => { (async () => { setTasas(await dbGetAll<Tasa>('tasas')); })(); }, []);
 
@@ -1760,6 +1826,18 @@ function Settings({ cfg, refreshCfg }: { cfg: Record<string, any>; refreshCfg: (
   const saveBiz = async () => { await setConfig('biz', biz); await setConfig('addr', addr); await setConfig('phone', phone); await setConfig('nit', nit); await refreshCfg(); showToast('Guardado', 'ok'); };
   const saveDep = async () => { await setConfig('pctDependienta', pctDep); await setConfig('accionista1Nombre', acc1Name); await setConfig('accionista2Nombre', acc2Name); await setConfig('dependientaNombre', depName); await refreshCfg(); showToast('Guardado', 'ok'); };
   const saveOptions = async () => { await setConfig('actualizarPreciosConTasa', actualizarPrecios); await setConfig('mostrarEquivalentes', mostrarEquiv); await refreshCfg(); showToast('Guardado', 'ok'); };
+  const saveVisibility = async () => {
+    await setConfig('mostrarCajaCUP', mostrarCajaCUP);
+    await setConfig('mostrarCajaUSD', mostrarCajaUSD);
+    await setConfig('mostrarGanancia', mostrarGanancia);
+    await setConfig('mostrarInversion', mostrarInversion);
+    await setConfig('mostrarInventarioPorUbicacion', mostrarInventarioPorUbicacion);
+    await setConfig('mostrarDesglosePagos', mostrarDesglosePagos);
+    await setConfig('mostrarCierreDia', mostrarCierreDia);
+    await setConfig('mostrarDistribucionGanancias', mostrarDistribucionGanancias);
+    await refreshCfg();
+    showToast('Visibilidad guardada', 'ok');
+  };
 
   const lic = getLicense();
 
@@ -1779,6 +1857,18 @@ function Settings({ cfg, refreshCfg }: { cfg: Record<string, any>; refreshCfg: (
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={actualizarPrecios} onChange={e => setActualizarPrecios(e.target.checked)} /> Al cambiar la tasa, actualizar automáticamente precios CUP (excepto productos con precio fijo)</label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarEquiv} onChange={e => setMostrarEquiv(e.target.checked)} /> Mostrar equivalentes en la otra moneda</label>
         <button className="btn btn-primary" onClick={saveOptions}>Guardar</button>
+      </div></div>
+
+      <div className="card p-6"><h3 className="font-bold text-lg mb-4">👁️ Visibilidad de Métricas</h3><p className="text-xs mb-3" style={{ color: 'var(--text2)' }}>Controla qué métricas se muestran en Dashboard, Ventas, Cierre Semanal y Métricas</p><div className="space-y-3">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarCajaCUP} onChange={e => setMostrarCajaCUP(e.target.checked)} /> 💵 Caja CUP</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarCajaUSD} onChange={e => setMostrarCajaUSD(e.target.checked)} /> 💵 Caja USD</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarGanancia} onChange={e => setMostrarGanancia(e.target.checked)} /> 💰 Ganancia</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarInversion} onChange={e => setMostrarInversion(e.target.checked)} /> 💸 Inversión / Costo</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarInventarioPorUbicacion} onChange={e => setMostrarInventarioPorUbicacion(e.target.checked)} /> 📦 Inventario por Ubicación (Tienda/Almacén)</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarDesglosePagos} onChange={e => setMostrarDesglosePagos(e.target.checked)} /> 💳 Desglose de Pagos (Efectivo/Transferencia/Crédito)</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarCierreDia} onChange={e => setMostrarCierreDia(e.target.checked)} /> 📊 Cierre del Día</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mostrarDistribucionGanancias} onChange={e => setMostrarDistribucionGanancias(e.target.checked)} /> 📈 Distribución de Ganancias (Accionistas/Dependienta)</label>
+        <button className="btn btn-primary" onClick={saveVisibility}>Guardar</button>
       </div></div>
 
       <div className="card p-6"><h3 className="font-bold text-lg mb-4">🏪 Negocio</h3><div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-medium">Nombre</label><input className="input" value={biz} onChange={e => setBiz(e.target.value)} /></div><div><label className="text-xs font-medium">Dirección</label><input className="input" value={addr} onChange={e => setAddr(e.target.value)} /></div><div><label className="text-xs font-medium">Teléfono</label><input className="input" value={phone} onChange={e => setPhone(e.target.value)} /></div><div><label className="text-xs font-medium">NIT</label><input className="input" value={nit} onChange={e => setNit(e.target.value)} /></div></div><button className="btn btn-primary mt-3" onClick={saveBiz}>Guardar</button></div>
