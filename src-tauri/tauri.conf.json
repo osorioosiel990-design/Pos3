@@ -1,14 +1,13 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "Ferretería Suárez",
+  "version": "1.0.0",
+  "identifier": "com.ferreteriapro.app",
   "build": {
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
-    "devPath": "http://localhost:3000",
-    "distDir": "../dist"
-  },
-  "package": {
-    "productName": "Ferretería Suárez",
-    "version": "1.0.0"
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../dist"
   },
   "tauri": {
     "bundle": {
