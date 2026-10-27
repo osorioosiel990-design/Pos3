@@ -1,5 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema-capabilities.json",
+  "identifier": "default",
   "description": "Default capability for the main window",
   "permissions": [
     "core:path:default",
