@@ -11,14 +11,16 @@
   "app": {
     "windows": [
       {
-        "fullscreen": false,
-        "height": 900,
-        "resizable": true,
+        "label": "main",
+        "identifier": "main",
         "title": "FerreteríaPRO",
         "width": 1400,
+        "height": 900,
         "minWidth": 1024,
         "minHeight": 768,
-        "center": true
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
       }
     ],
     "security": {
