@@ -12,7 +12,6 @@
     "windows": [
       {
         "label": "main",
-        "identifier": "main",
         "title": "FerreteríaPRO",
         "width": 1400,
         "height": 900,
